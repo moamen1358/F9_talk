@@ -74,3 +74,7 @@ For the local backend, install GPU deps once: `.venv/bin/pip install -e '.[local
 ## 📜 License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+Created by moamen
