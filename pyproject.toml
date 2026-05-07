@@ -48,8 +48,8 @@ dev = [
 f9-talk = "f9_talk.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/moamen/f9-talk"
-Issues = "https://github.com/moamen/f9-talk/issues"
+Homepage = "https://github.com/moamen1358/F9_talk"
+Issues = "https://github.com/moamen1358/F9_talk/issues"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

@@ -72,7 +72,7 @@ Total perceived latency: **~250-450 ms** from key-release to text-on-screen.
 
 ```bash
 # 1. Clone + set up venv
-git clone https://github.com/moamen/f9-talk.git
+git clone https://github.com/moamen1358/F9_talk.git
 cd f9-talk
 python3 -m venv .venv
 .venv/bin/pip install -e .
