@@ -4,6 +4,26 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.5.1] — 2026-05-09 — Docs + dev tooling
+
+No runtime behaviour change. Same binary as 0.5.0.
+
+### Added
+- `run.sh` at the repo root — a thin dev launcher that rebuilds on
+  demand (`--build`), kills any stale instance so the abstract-socket
+  lock doesn't reject the new process, and `exec`s the binary via
+  `sg input` so it works even when your GUI session predates joining
+  the `input` group. Forwards any extra flags to `f9-talk`.
+
+### Changed
+- README restructured for clarity: Highlights callout near the top,
+  numbered Quick start, run.sh documented under Build from source,
+  redundant "Features" list folded into the relevant sections, and
+  the Reliability bullet about backoff updated to reflect the
+  reset-on-healthy-connect fix from 0.5.0.
+
+---
+
 ## [0.5.0] — 2026-05-09 — Deepgram-only
 
 ### Removed
