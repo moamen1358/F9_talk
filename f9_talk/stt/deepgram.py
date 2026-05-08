@@ -32,7 +32,7 @@ class DeepgramStreamingSTT:
         self,
         api_key: str | None = None,
         sample_rate: int = 16000,
-        model: str = "nova-2",
+        model: str = "nova-3",
         language: str = "en",
         keywords: list[str] | None = None,
     ) -> None:
