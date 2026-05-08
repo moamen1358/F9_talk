@@ -113,7 +113,21 @@ def _prompt_for_api_key() -> bool:
     return True
 
 
+def _acquire_lock() -> bool:
+    """Return True if this is the only running instance, False if another is already running."""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.bind("\0f9-talk-instance-lock")
+        return True
+    except OSError:
+        return False
+
+
 def main() -> int:
+    if not _acquire_lock():
+        print("f9-talk is already running.", file=sys.stderr)
+        return 0
     _load_env_files()
 
     p = argparse.ArgumentParser(
