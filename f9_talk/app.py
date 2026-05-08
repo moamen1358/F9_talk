@@ -83,11 +83,16 @@ class DictateApp:
 
         self._pressed: set = set()
         self._recording = False
+        self._paused = False
         self._active_backend: str | None = None
         self._record_started_at = 0.0
         self._busy_lock = threading.Lock()
         self._listener: keyboard.Listener | None = None
         self._release_timer: threading.Timer | None = None
+
+    def set_paused(self, paused: bool) -> None:
+        """When True, ignore all key presses. In-flight sessions still finish on release."""
+        self._paused = paused
 
     # ---------- hotkey routing ----------
 
@@ -95,6 +100,8 @@ class DictateApp:
         return self.local_hotkey if backend == "local" else self.cloud_hotkey
 
     def _on_press(self, key) -> None:
+        if self._paused:
+            return
         canon = canonical_key(key)
         self._pressed.add(canon)
         # If a release timer is pending this press is X11 auto-repeat — cancel the

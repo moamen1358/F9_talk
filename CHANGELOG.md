@@ -7,6 +7,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 ## [0.1.0] — 2026-05-08
 
 ### Added
+- System tray icon with active/paused visual states; left-click toggles, right-click menu has Pause/Resume + Quit. Pauses the F9 hotkey without stopping the app, so resume is instant
 - Hold-to-talk dictation via Deepgram Nova-2 cloud STT (~300 ms latency)
 - Local offline backend via faster-whisper (GPU required)
 - Audio-reactive overlay indicator with six animation styles: `wave`, `bars`, `pulse`, `dots`, `ripple`, `blob`

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from f9_talk import __version__
 from f9_talk.app import DictateApp
-from f9_talk.ui import DictateIndicator
+from f9_talk.ui import DictateIndicator, DictateTray
 
 _SECRETS_FILE = Path.home() / ".config" / "F9_talk" / "secrets.env"
 
@@ -202,6 +202,18 @@ def main() -> int:
         keywords=args.keyword,
         backend=args.backend,
     )
+
+    from PySide6.QtWidgets import QSystemTrayIcon
+    tray: DictateTray | None = None
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        tray = DictateTray(qapp)
+        tray.pause_changed.connect(dictate.set_paused)
+        tray.quit_requested.connect(qapp.quit)
+        tray.show()
+    else:
+        logging.getLogger(__name__).warning(
+            "System tray not available; running without tray icon."
+        )
 
     QTimer.singleShot(0, dictate.start)
 
