@@ -16,5 +16,5 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# reqwest pulls in rustls. Added when the translation impl lands.
-# reqwest = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = "2"

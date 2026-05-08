@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
 use f9_talk_stt::{BackendEvent, Stt};
+use f9_talk_translate::Translator;
 use f9_talk_ui::{
     IndicatorApp, IndicatorState, KeysDialogState, TrayCloudProvider, TrayCommand, TrayHandle,
     TrayVisualState,
@@ -363,6 +364,15 @@ async fn build_cloud_backend(
     }
 }
 
+fn build_local_backend(keywords: &[String]) -> Arc<dyn Stt> {
+    Arc::new(f9_talk_stt::whisper::WhisperLocal::new(
+        f9_talk_stt::whisper::Config {
+            language: "en".into(),
+            keywords: keywords.to_vec(),
+        },
+    ))
+}
+
 fn provider_to_tray(p: CloudProvider) -> TrayCloudProvider {
     match p {
         CloudProvider::Assemblyai => TrayCloudProvider::Assemblyai,
@@ -390,7 +400,7 @@ async fn run_session_loop(
     keys_dialog: KeysDialogState,
 ) -> anyhow::Result<()> {
     let provider = initial_provider;
-    let provider = match (cli.backend, provider) {
+    let (mut backend, mut active_provider) = match (cli.backend, provider) {
         (Backend::Cloud, None) => {
             eprintln!(
                 "f9-talk: --backend cloud needs ASSEMBLYAI_API_KEY or DEEPGRAM_API_KEY \
@@ -398,19 +408,27 @@ async fn run_session_loop(
             );
             std::process::exit(2);
         }
-        (Backend::Cloud, Some(p)) => p,
-        (Backend::Local, _) | (Backend::Both, _) => {
-            eprintln!(
-                "f9-talk: --backend {{local|both}} support lands later in M2 \
-                 (whisper-rs + CUDA model download)."
+        (Backend::Cloud, Some(p)) => (build_cloud_backend(p, &secrets, &cli.keywords).await?, p),
+        (Backend::Local, _) => {
+            // Local-only — `active_provider` stays at AssemblyAI as a
+            // sentinel; tray provider switches are no-ops in this mode.
+            (
+                build_local_backend(&cli.keywords),
+                CloudProvider::Assemblyai,
+            )
+        }
+        (Backend::Both, _) => {
+            warn!(
+                "--backend both is not yet split between F9/F8 in v0.4 — \
+                 falling back to --backend local for now"
             );
-            std::process::exit(2);
+            (
+                build_local_backend(&cli.keywords),
+                CloudProvider::Assemblyai,
+            )
         }
     };
-
-    let mut backend = build_cloud_backend(provider, &secrets, &cli.keywords).await?;
     let mut backend_name = backend.name();
-    let mut active_provider = provider;
 
     let (event_tx, mut event_rx) = mpsc::channel::<BackendEvent>(64);
     backend
@@ -439,9 +457,22 @@ async fn run_session_loop(
         }
     };
 
+    let translator = cli
+        .target
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .and_then(|tgt| {
+            if tgt == "en" {
+                None
+            } else {
+                info!("translation enabled: en → {tgt}");
+                Some(Translator::new("en", tgt))
+            }
+        });
+
     info!(
-        "f9-talk M3 ready. hold {} to dictate (cloud={backend_name}, Ctrl-C to quit)",
-        chord
+        "f9-talk M3 ready. hold {} to dictate (cloud={backend_name}, target={:?}, Ctrl-C to quit)",
+        chord, cli.target
     );
     let mut typer = Typer::new()?;
 
@@ -500,8 +531,14 @@ async fn run_session_loop(
                             info!("(no speech detected)");
                             indicator.set_status_text(None);
                         } else {
+                            let final_text = if let Some(tr) = translator.as_ref() {
+                                indicator.set_status_text(Some("🌐  Translating…".to_string()));
+                                tr.translate(&result.transcript).await
+                            } else {
+                                result.transcript.clone()
+                            };
                             indicator.set_status_text(Some("⌨  Typing…".to_string()));
-                            if let Err(e) = typer.type_text(&result.transcript) {
+                            if let Err(e) = typer.type_text(&final_text) {
                                 warn!("typer failed: {e}");
                                 if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
                             } else if let Some(t) = tray_handle.as_ref() {

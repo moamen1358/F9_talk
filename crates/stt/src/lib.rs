@@ -19,6 +19,7 @@
 
 pub mod assemblyai;
 pub mod deepgram;
+pub mod whisper;
 
 use std::time::Duration;
 
