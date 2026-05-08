@@ -20,11 +20,14 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+#[cfg(feature = "whisper")]
+use tracing::debug;
+use tracing::{info, warn};
 
 use crate::{BackendEvent, SessionResult, Stt, SttError};
 
 const MODEL_FILE: &str = "ggml-large-v3-turbo.bin";
+#[cfg(feature = "whisper")]
 const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin";
 

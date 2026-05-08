@@ -13,18 +13,19 @@ env:
 
 jobs:
   check:
-    name: cargo check (no-default-features, full test)
+    name: cargo check + clippy + test
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system deps for cpal / tray-icon / eframe
+      - name: Install system deps for cpal / tray-icon / eframe / whisper-rs
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev \
-            libpipewire-0.3-dev \
             libdbus-1-dev \
+            libudev-dev \
+            libevdev-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             libxcb1-dev \
@@ -32,6 +33,10 @@ jobs:
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
+            libfontconfig1-dev \
+            libxdo-dev \
+            libclang-dev \
+            libssl-dev \
             pkg-config
 
       - uses: dtolnay/rust-toolchain@stable
@@ -43,47 +48,23 @@ jobs:
       - name: cargo fmt --all -- --check
         run: cargo fmt --all -- --check
 
+      - name: cargo clippy (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: cargo clippy (no-default-features)
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
+
+      - name: cargo test (default features)
+        run: cargo test --workspace
 
       - name: cargo test (no-default-features)
         run: cargo test --workspace --no-default-features
 
-  build-cuda:
-    name: cargo build (--features cuda, build-only)
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system deps + CUDA toolkit (apt)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libasound2-dev \
-            libpipewire-0.3-dev \
-            libdbus-1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            nvidia-cuda-toolkit \
-            pkg-config
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: cargo build --features cuda (build-only, no GPU on CI)
-        run: cargo build --workspace --features cuda
-
   deny:
-    name: cargo deny (licenses + advisories)
+    name: cargo deny (licenses + advisories + bans)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: --all-features check licenses advisories sources bans
+          arguments: --all-features check

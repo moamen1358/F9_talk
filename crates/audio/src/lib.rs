@@ -137,7 +137,7 @@ fn build_and_run_stream(
     let device_id = device.id().ok();
 
     let supported = device.default_input_config()?;
-    let in_rate: u32 = supported.sample_rate().into();
+    let in_rate: u32 = supported.sample_rate();
     let channels = supported.channels();
     info!(
         "mic: device={device_id:?} native_rate={} Hz channels={} format={:?} → resample to {} Hz mono s16le",
