@@ -15,6 +15,8 @@ F9 ↓  →  🎙   Listening...
 F9 ↑  →  ⌨    Text appears at cursor   (~250 ms with Deepgram Nova-3)
 ```
 
+> ⚠️ **Linux + X11 only.** Windows, macOS, and Wayland are not supported. The app depends on `xdotool` for typing and `parec` for mic capture, both Linux-specific. Cross-platform support is a future goal — see [Requirements](#requirements).
+
 ---
 
 ## Install
