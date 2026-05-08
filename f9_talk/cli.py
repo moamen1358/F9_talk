@@ -86,8 +86,10 @@ def _prompt_for_api_key() -> bool:
     if dlg.exec() != QDialog.Accepted:
         return False
 
-    key = key_input.text().strip()
+    key = key_input.text().strip().replace("\n", "").replace("\r", "")
     if not key:
+        return False
+    if "=" in key or len(key) > 512:
         return False
 
     # Write key into secrets.env (create or update existing line)
@@ -113,12 +115,16 @@ def _prompt_for_api_key() -> bool:
     return True
 
 
+_instance_lock: "socket.socket | None" = None  # held for the process lifetime
+
+
 def _acquire_lock() -> bool:
     """Return True if this is the only running instance, False if another is already running."""
-    import socket
+    import socket as _socket
+    global _instance_lock
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        sock.bind("\0f9-talk-instance-lock")
+        _instance_lock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_DGRAM)
+        _instance_lock.bind("\0f9-talk-instance-lock")
         return True
     except OSError:
         return False

@@ -5,7 +5,10 @@ Falls back to MyMemory automatically if Lingva is unreachable.
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import quote
+
+_LANG_RE = re.compile(r"^[a-zA-Z]{2,5}$")
 
 import requests
 
@@ -21,6 +24,10 @@ class LingvaTranslator:
         target_lang: str = "ar",
         timeout: float = 4.0,
     ) -> None:
+        if not _LANG_RE.match(src_lang):
+            raise ValueError(f"Invalid source language code: {src_lang!r}")
+        if not _LANG_RE.match(target_lang):
+            raise ValueError(f"Invalid target language code: {target_lang!r}")
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.timeout = timeout
