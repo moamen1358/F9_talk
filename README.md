@@ -159,6 +159,12 @@ Release `.deb` packages are built and published automatically via GitHub Actions
 
 ---
 
+## Architecture
+
+Threading model, data flow, and latency budget are documented in [`docs/architecture.md`](docs/architecture.md).
+
+---
+
 ## License
 
 [MIT](LICENSE) — Moamen Ghareeb
