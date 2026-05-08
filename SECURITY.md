@@ -18,7 +18,7 @@ f9-talk handles sensitive resources:
 
 If you discover a security vulnerability, **do not open a public issue**.
 
-Email: **info@whiteguard.co.uk**
+Email: **moamen.ghareeb.11@gmail.com**
 
 Include:
 - A description of the vulnerability and its potential impact

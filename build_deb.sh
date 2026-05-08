@@ -116,7 +116,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Depends: python3 (>= 3.10), python3-venv, python3-pip, libportaudio2, libsndfile1, libxcb-cursor0, libxkbcommon-x11-0, libdbus-1-3, xdotool
-Maintainer: Moamen Ghareeb <info@whiteguard.co.uk>
+Maintainer: Moamen Ghareeb <moamen.ghareeb.11@gmail.com>
 Homepage: https://github.com/moamen1358/F9_talk
 Description: Hold-to-talk system-wide dictation for Linux
  Hold F9 (or any key) to speak — text appears at your cursor.

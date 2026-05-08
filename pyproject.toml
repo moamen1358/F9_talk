@@ -5,7 +5,7 @@ description = "Hold-to-talk system-wide dictation for Linux. Cloud or local STT,
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "Moamen Ghareeb"}]
+authors = [{name = "Moamen Ghareeb", email = "moamen.ghareeb.11@gmail.com"}]
 keywords = ["dictation", "stt", "speech-to-text", "deepgram", "whisper", "linux"]
 classifiers = [
     "Development Status :: 4 - Beta",
