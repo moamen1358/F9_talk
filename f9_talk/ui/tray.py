@@ -52,6 +52,7 @@ class DictateTray(QSystemTrayIcon):
 
     pause_changed = Signal(bool)
     provider_changed = Signal(str)  # "deepgram" | "assemblyai" | "gladia"
+    keys_edit_requested = Signal()
     quit_requested = Signal()
 
     def __init__(
@@ -110,6 +111,11 @@ class DictateTray(QSystemTrayIcon):
         )
         provider_group.addAction(self._gladia_action)
         provider_menu.addAction(self._gladia_action)
+
+        menu.addSeparator()
+        self._keys_action = QAction("API Keys…", self)
+        self._keys_action.triggered.connect(self.keys_edit_requested.emit)
+        menu.addAction(self._keys_action)
 
         menu.addSeparator()
         menu.addAction(self._quit_action)

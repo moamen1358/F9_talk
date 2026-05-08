@@ -19,9 +19,63 @@ from PySide6.QtWidgets import (
 
 from f9_talk import __version__
 from f9_talk.app import DictateApp
-from f9_talk.ui import DictateIndicator, DictateTray
+from f9_talk.ui import APIKeysDialog, DictateIndicator, DictateTray
 
 _SECRETS_FILE = Path.home() / ".config" / "F9_talk" / "secrets.env"
+
+_PROVIDER_ENV = {
+    "deepgram":   "DEEPGRAM_API_KEY",
+    "assemblyai": "ASSEMBLYAI_API_KEY",
+    "gladia":     "GLADIA_API_KEY",
+}
+
+
+def _load_secrets(path: Path = _SECRETS_FILE) -> dict[str, str]:
+    """Return current values for the three managed providers from a .env file."""
+    if not path.exists():
+        return {}
+    out: dict[str, str] = {}
+    env_to_provider = {v: k for k, v in _PROVIDER_ENV.items()}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            if k in env_to_provider:
+                out[env_to_provider[k]] = v
+    except OSError:
+        pass
+    return out
+
+
+def _save_secrets(edits: dict[str, str], path: Path = _SECRETS_FILE) -> None:
+    """Write the given provider→key edits, preserving every other line."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+
+    new_lines = {_PROVIDER_ENV[p]: f"{_PROVIDER_ENV[p]}={v}" for p, v in edits.items()}
+    seen: set[str] = set()
+    out_lines: list[str] = []
+
+    if path.exists():
+        for raw in path.read_text().splitlines():
+            stripped = raw.strip()
+            if "=" in stripped and not stripped.startswith("#"):
+                key = stripped.split("=", 1)[0].strip()
+                if key in new_lines:
+                    out_lines.append(new_lines[key])
+                    seen.add(key)
+                    continue
+            out_lines.append(raw)
+
+    for env_key, line in new_lines.items():
+        if env_key not in seen:
+            out_lines.append(line)
+
+    path.write_text("\n".join(out_lines) + "\n")
+    path.chmod(0o600)
 
 
 def _load_env_files() -> None:
@@ -230,8 +284,28 @@ def main() -> int:
             assemblyai_available=dictate.cloud_stt_assemblyai is not None,
             gladia_available=dictate.cloud_stt_gladia is not None,
         )
+
+        def _on_keys_edit() -> None:
+            current = _load_secrets()
+            dlg = APIKeysDialog(current)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            edits = dlg.edited_keys()
+            if not edits:
+                return
+            try:
+                _save_secrets(edits)
+            except OSError as e:
+                logging.getLogger(__name__).error("Failed to save secrets: %s", e)
+                tray.show_error(f"Couldn't save keys: {e}")
+                return
+            for provider, value in edits.items():
+                os.environ[_PROVIDER_ENV[provider]] = value
+            dictate.reload_keys()
+
         tray.pause_changed.connect(dictate.set_paused)
         tray.provider_changed.connect(dictate.set_cloud_provider)
+        tray.keys_edit_requested.connect(_on_keys_edit)
         tray.quit_requested.connect(qapp.quit)
         tray.show()
         _tray_ref["tray"] = tray

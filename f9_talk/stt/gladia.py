@@ -29,6 +29,8 @@ class GladiaStreamingSTT:
     ``send_audio()``, ``end_session()``.
     """
 
+    _ENV_KEY = "GLADIA_API_KEY"
+
     def __init__(
         self,
         api_key: str | None = None,

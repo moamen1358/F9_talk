@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 from pynput import keyboard
@@ -47,8 +47,8 @@ class DictateApp:
         target_lang: str | None = None,
         keywords: list[str] | None = None,
         backend: str = "both",
-        on_error: "Callable[[str], None] | None" = None,
-        on_success: "Callable[[], None] | None" = None,
+        on_error: Callable[[str], None] | None = None,
+        on_success: Callable[[], None] | None = None,
     ) -> None:
         if backend not in ("both", "cloud", "local"):
             raise ValueError(f"Unknown backend: {backend!r}")
@@ -127,6 +127,29 @@ class DictateApp:
         if self._cloud_provider == "gladia" and self.cloud_stt_gladia is not None:
             return self.cloud_stt_gladia
         return self.cloud_stt_deepgram
+
+    def reload_keys(self) -> None:
+        """Pick up new API keys from os.environ. Reconnects Deepgram if idle."""
+        import os as _os
+        for backend in (
+            self.cloud_stt_deepgram,
+            self.cloud_stt_assemblyai,
+            self.cloud_stt_gladia,
+        ):
+            if backend is None:
+                continue
+            new = _os.environ.get(backend.__class__._ENV_KEY, "")
+            if new and new != getattr(backend, "api_key", None):
+                backend.api_key = new
+                log.info("Updated %s API key", backend.__class__.__name__)
+        # Deepgram holds a persistent WebSocket — reconnect with the new key,
+        # but only if no recording is in flight.
+        if self.cloud_stt_deepgram is not None and not self._recording:
+            try:
+                self.cloud_stt_deepgram.stop()
+                self.cloud_stt_deepgram.start()
+            except Exception as e:  # noqa: BLE001
+                log.error("Deepgram reconnect after key reload failed: %s", e)
 
     def set_cloud_provider(self, name: str) -> None:
         """Switch active cloud backend. Takes effect on the next session."""

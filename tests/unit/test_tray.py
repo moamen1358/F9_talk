@@ -51,10 +51,21 @@ def test_set_paused_idempotent(tray):
     assert received == [True]
 
 
-def test_menu_has_three_top_level_items(tray):
-    """Pause/Resume + Cloud-provider submenu + Quit."""
+def test_menu_has_four_top_level_items(tray):
+    """Pause/Resume + Cloud-provider submenu + API Keys + Quit."""
     actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
-    assert len(actions) == 3
+    assert len(actions) == 4
+    assert actions[2].text() == "API Keys…"
+
+
+def test_keys_menu_action_emits_keys_edit_requested(tray):
+    received: list[bool] = []
+    tray.keys_edit_requested.connect(lambda: received.append(True))
+
+    actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
+    actions[2].trigger()
+
+    assert received == [True]
 
 
 def test_menu_label_flips_with_state(tray):
@@ -128,7 +139,7 @@ def test_quit_action_emits_quit_requested(tray):
     tray.quit_requested.connect(lambda: received.append(True))
 
     actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
-    quit_action = actions[2]
+    quit_action = actions[3]
     quit_action.trigger()
 
     assert received == [True]

@@ -112,6 +112,57 @@ def test_on_error_callback_fires_when_backend_reports_error():
     assert received == ["deepgram: 401 Unauthorized"]
 
 
+def test_reload_keys_updates_backend_attributes(monkeypatch):
+    app = _build_app()
+    app.cloud_stt_deepgram = MagicMock(api_key="old-dg")
+    app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
+    app.cloud_stt_assemblyai = MagicMock(api_key="old-aa")
+    app.cloud_stt_assemblyai.__class__._ENV_KEY = "ASSEMBLYAI_API_KEY"
+    app.cloud_stt_gladia = MagicMock(api_key="old-gl")
+    app.cloud_stt_gladia.__class__._ENV_KEY = "GLADIA_API_KEY"
+
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "new-dg")
+    monkeypatch.setenv("ASSEMBLYAI_API_KEY", "new-aa")
+    monkeypatch.setenv("GLADIA_API_KEY", "new-gl")
+
+    app._recording = False
+    app.reload_keys()
+
+    assert app.cloud_stt_deepgram.api_key == "new-dg"
+    assert app.cloud_stt_assemblyai.api_key == "new-aa"
+    assert app.cloud_stt_gladia.api_key == "new-gl"
+
+
+def test_reload_keys_reconnects_deepgram_when_idle(monkeypatch):
+    app = _build_app()
+    app.cloud_stt_deepgram = MagicMock(api_key="old")
+    app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
+    app.cloud_stt_assemblyai = None
+    app.cloud_stt_gladia = None
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "new")
+
+    app._recording = False
+    app.reload_keys()
+
+    app.cloud_stt_deepgram.stop.assert_called_once()
+    app.cloud_stt_deepgram.start.assert_called_once()
+
+
+def test_reload_keys_skips_deepgram_reconnect_mid_session(monkeypatch):
+    app = _build_app()
+    app.cloud_stt_deepgram = MagicMock(api_key="old")
+    app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
+    app.cloud_stt_assemblyai = None
+    app.cloud_stt_gladia = None
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "new")
+
+    app._recording = True  # mid-recording, don't disturb the WS
+    app.reload_keys()
+
+    app.cloud_stt_deepgram.stop.assert_not_called()
+    app.cloud_stt_deepgram.start.assert_not_called()
+
+
 def test_on_success_callback_fires_when_text_typed():
     received: list[bool] = []
     with (

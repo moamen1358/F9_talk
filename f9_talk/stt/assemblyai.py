@@ -24,6 +24,8 @@ class AssemblyAIStreamingSTT:
     requires shutting down and recreating it anyway.
     """
 
+    _ENV_KEY = "ASSEMBLYAI_API_KEY"
+
     def __init__(
         self,
         api_key: str | None = None,

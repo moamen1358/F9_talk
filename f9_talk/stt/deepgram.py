@@ -28,6 +28,8 @@ class DeepgramStreamingSTT:
     endpointing.
     """
 
+    _ENV_KEY = "DEEPGRAM_API_KEY"
+
     def __init__(
         self,
         api_key: str | None = None,
