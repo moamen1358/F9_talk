@@ -51,6 +51,7 @@ class GladiaStreamingSTT:
         self._recording = False
         self._finals: list[str] = []
         self._closed_event = threading.Event()
+        self.last_error: str | None = None
 
     # ---------- lifecycle ----------
 
@@ -66,6 +67,7 @@ class GladiaStreamingSTT:
         with self._lock:
             self._recording = True
             self._finals = []
+            self.last_error = None
         self._closed_event.clear()
 
         # 1. Create the live session
@@ -87,6 +89,8 @@ class GladiaStreamingSTT:
             ws_url = session["url"]
         except (requests.RequestException, KeyError) as e:
             log.error("Gladia session init failed: %s", e)
+            with self._lock:
+                self.last_error = f"session init failed: {e}"
             return
 
         # 2. Open the WebSocket
@@ -94,6 +98,8 @@ class GladiaStreamingSTT:
             self._ws = ws_connect(ws_url, max_size=10_000_000, open_timeout=5.0)
         except Exception as e:  # noqa: BLE001
             log.error("Gladia WebSocket open failed: %s", e)
+            with self._lock:
+                self.last_error = f"websocket open failed: {e}"
             self._ws = None
             return
 

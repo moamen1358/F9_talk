@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Callable
 
 import numpy as np
 from pynput import keyboard
@@ -46,12 +47,16 @@ class DictateApp:
         target_lang: str | None = None,
         keywords: list[str] | None = None,
         backend: str = "both",
+        on_error: "Callable[[str], None] | None" = None,
+        on_success: "Callable[[], None] | None" = None,
     ) -> None:
         if backend not in ("both", "cloud", "local"):
             raise ValueError(f"Unknown backend: {backend!r}")
 
         self.indicator = indicator
         self.backend_mode = backend
+        self._on_error = on_error or (lambda _msg: None)
+        self._on_success = on_success or (lambda: None)
 
         # In single-backend mode the chosen backend gets the local_hotkey (default F9)
         if backend == "cloud":
@@ -232,10 +237,18 @@ class DictateApp:
                 if backend == "local":
                     assert self.local_stt is not None
                     text = self.local_stt.end_session()
+                    backend_obj = self.local_stt
                 else:
                     assert self.cloud_stt is not None
                     text = self.cloud_stt.end_session(max_wait_ms=350)
+                    backend_obj = self.cloud_stt
                 stt_ms = (time.monotonic() - t0) * 1000
+                err = getattr(backend_obj, "last_error", None)
+                if err:
+                    label = self._cloud_provider if backend == "cloud" else "local"
+                    log.error("STT error from %s: %s", label, err)
+                    self._on_error(f"{label}: {err}")
+                    return
                 if not text:
                     log.info("(no speech detected)")
                     return
@@ -253,6 +266,7 @@ class DictateApp:
                     text,
                 )
                 self.typer.type_text(text)
+                self._on_success()
             except Exception as e:  # noqa: BLE001
                 log.exception("dictate finish failed: %s", e)
             finally:

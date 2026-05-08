@@ -197,6 +197,21 @@ def main() -> int:
             return 1
 
     indicator = DictateIndicator(style=args.style)
+
+    # Lazy holders — populated below if the tray is available so the callbacks
+    # can reach the live tray instance even though DictateApp is built first.
+    _tray_ref: dict[str, DictateTray | None] = {"tray": None}
+
+    def _on_stt_error(msg: str) -> None:
+        t = _tray_ref["tray"]
+        if t is not None:
+            t.show_error(msg)
+
+    def _on_stt_success() -> None:
+        t = _tray_ref["tray"]
+        if t is not None:
+            t.clear_error()
+
     dictate = DictateApp(
         indicator=indicator,
         local_hotkey=args.local_hotkey,
@@ -204,10 +219,11 @@ def main() -> int:
         target_lang=args.target,
         keywords=args.keyword,
         backend=args.backend,
+        on_error=_on_stt_error,
+        on_success=_on_stt_success,
     )
 
     from PySide6.QtWidgets import QSystemTrayIcon
-    tray: DictateTray | None = None
     if QSystemTrayIcon.isSystemTrayAvailable():
         tray = DictateTray(
             qapp,
@@ -218,6 +234,7 @@ def main() -> int:
         tray.provider_changed.connect(dictate.set_cloud_provider)
         tray.quit_requested.connect(qapp.quit)
         tray.show()
+        _tray_ref["tray"] = tray
     else:
         logging.getLogger(__name__).warning(
             "System tray not available; running without tray icon."

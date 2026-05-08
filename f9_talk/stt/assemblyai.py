@@ -45,6 +45,7 @@ class AssemblyAIStreamingSTT:
         self._recording = False
         self._final_text = ""
         self._final_event = threading.Event()
+        self.last_error: str | None = None
 
     # ---------- lifecycle ----------
 
@@ -67,19 +68,27 @@ class AssemblyAIStreamingSTT:
         with self._lock:
             self._recording = True
             self._final_text = ""
+            self.last_error = None
         self._final_event.clear()
         self._queue = queue.Queue()
 
-        client = StreamingClient(
-            StreamingClientOptions(
-                api_key=self.api_key,
-                api_host="streaming.assemblyai.com",
+        try:
+            client = StreamingClient(
+                StreamingClientOptions(
+                    api_key=self.api_key,
+                    api_host="streaming.assemblyai.com",
+                )
             )
-        )
-        client.on(StreamingEvents.Turn, self._on_turn)
-        client.on(StreamingEvents.Error, self._on_error)
-        client.connect(StreamingParameters(sample_rate=self.sample_rate))
-        self._client = client
+            client.on(StreamingEvents.Turn, self._on_turn)
+            client.on(StreamingEvents.Error, self._on_error)
+            client.connect(StreamingParameters(sample_rate=self.sample_rate))
+            self._client = client
+        except Exception as e:  # noqa: BLE001
+            log.error("AssemblyAI connect failed: %s", e)
+            with self._lock:
+                self.last_error = f"connect failed: {e}"
+            self._client = None
+            return
 
         self._stream_thread = threading.Thread(
             target=self._stream_loop, daemon=True, name="assemblyai-stream"
@@ -148,3 +157,5 @@ class AssemblyAIStreamingSTT:
 
     def _on_error(self, _client, error) -> None:
         log.error("AssemblyAI streaming error: %s", error)
+        with self._lock:
+            self.last_error = str(error) if error else "streaming error"

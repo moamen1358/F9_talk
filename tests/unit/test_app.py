@@ -83,3 +83,57 @@ def test_set_cloud_provider_falls_back_when_assemblyai_missing():
     app.set_cloud_provider("assemblyai")
 
     assert app._cloud_provider == "deepgram"
+
+
+def test_on_error_callback_fires_when_backend_reports_error():
+    received: list[str] = []
+    with (
+        patch("f9_talk.app.DeepgramStreamingSTT"),
+        patch("f9_talk.app.AssemblyAIStreamingSTT"),
+        patch("f9_talk.app.GladiaStreamingSTT"),
+        patch("f9_talk.app.LocalWhisperSTT"),
+        patch("f9_talk.app.MicStreamer"),
+        patch("f9_talk.app.Typer"),
+    ):
+        from f9_talk.app import DictateApp
+        indicator = MagicMock()
+        app = DictateApp(
+            indicator=indicator,
+            backend="cloud",
+            on_error=received.append,
+        )
+
+    app.cloud_stt_deepgram.end_session = MagicMock(return_value="")
+    app.cloud_stt_deepgram.last_error = "401 Unauthorized"
+    app._record_started_at = 0.0
+    with patch("f9_talk.app.time.monotonic", return_value=1.0):
+        app._finish("cloud", duration=1.0)
+
+    assert received == ["deepgram: 401 Unauthorized"]
+
+
+def test_on_success_callback_fires_when_text_typed():
+    received: list[bool] = []
+    with (
+        patch("f9_talk.app.DeepgramStreamingSTT"),
+        patch("f9_talk.app.AssemblyAIStreamingSTT"),
+        patch("f9_talk.app.GladiaStreamingSTT"),
+        patch("f9_talk.app.LocalWhisperSTT"),
+        patch("f9_talk.app.MicStreamer"),
+        patch("f9_talk.app.Typer"),
+    ):
+        from f9_talk.app import DictateApp
+        indicator = MagicMock()
+        app = DictateApp(
+            indicator=indicator,
+            backend="cloud",
+            on_success=lambda: received.append(True),
+        )
+
+    app.cloud_stt_deepgram.end_session = MagicMock(return_value="hello world")
+    app.cloud_stt_deepgram.last_error = None
+    app._record_started_at = 0.0
+    app.translator = None
+    app._finish("cloud", duration=1.0)
+
+    assert received == [True]

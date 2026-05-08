@@ -57,6 +57,7 @@ class DeepgramStreamingSTT:
         self._recording = False
         self._session_finals: list[str] = []
         self._final_arrived = threading.Event()
+        self.last_error: str | None = None
 
     # ---------- lifecycle ----------
 
@@ -104,6 +105,7 @@ class DeepgramStreamingSTT:
             self._recording = True
             self._session_finals = []
             self._final_arrived.clear()
+            self.last_error = None
 
     def send_audio(self, pcm: bytes) -> None:
         if not self._connected.is_set():
@@ -141,6 +143,8 @@ class DeepgramStreamingSTT:
 
     def _on_error(self, *_args, error=None, **_kwargs) -> None:
         log.error("Deepgram error: %s", error)
+        with self._lock:
+            self.last_error = str(error) if error else "unknown error"
 
     def _on_message(self, *_args, result=None, **_kwargs) -> None:
         if result is None:

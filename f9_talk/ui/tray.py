@@ -26,6 +26,22 @@ def _make_paused_icon(source: QIcon) -> QIcon:
     return QIcon(QPixmap.fromImage(image))
 
 
+def _make_error_icon(source: QIcon) -> QIcon:
+    """Return a red-tinted variant of an icon to flag the last session as failed."""
+    pixmap = source.pixmap(64, 64)
+    image = pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+    for y in range(image.height()):
+        for x in range(image.width()):
+            px = image.pixel(x, y)
+            a = qAlpha(px)
+            if a == 0:
+                continue
+            g = qGray(px)
+            # Map gray -> red ramp; preserve alpha.
+            image.setPixelColor(x, y, QColor(qRgba(min(255, g + 80), 30, 30, a)))
+    return QIcon(QPixmap.fromImage(image))
+
+
 class DictateTray(QSystemTrayIcon):
     """Tray icon that exposes pause/resume + quit and visualizes the listen state.
 
@@ -56,6 +72,8 @@ class DictateTray(QSystemTrayIcon):
         theme_icon = QIcon.fromTheme("f9-talk")
         self._active_icon = theme_icon if not theme_icon.isNull() else QIcon(str(_ICON_PATH))
         self._paused_icon = _make_paused_icon(self._active_icon)
+        self._error_icon = _make_error_icon(self._active_icon)
+        self._error_active = False
 
         self._toggle_action = QAction("Pause listening", self)
         self._toggle_action.triggered.connect(self.toggle_pause)
@@ -118,10 +136,32 @@ class DictateTray(QSystemTrayIcon):
             self.setIcon(self._paused_icon)
             self.setToolTip("F9 Talk — Paused")
             self._toggle_action.setText("Resume listening")
+        elif self._error_active:
+            self.setIcon(self._error_icon)
+            self.setToolTip("F9 Talk — Last session failed")
+            self._toggle_action.setText("Pause listening")
         else:
             self.setIcon(self._active_icon)
             self.setToolTip("F9 Talk — Listening")
             self._toggle_action.setText("Pause listening")
+
+    def show_error(self, message: str) -> None:
+        """Pop a desktop notification and switch to the error icon."""
+        self._error_active = True
+        self._refresh_visuals()
+        self.showMessage(
+            "F9 Talk — STT error",
+            message,
+            QSystemTrayIcon.MessageIcon.Critical,
+            5000,
+        )
+
+    def clear_error(self) -> None:
+        """Restore the active icon after a successful session."""
+        if not self._error_active:
+            return
+        self._error_active = False
+        self._refresh_visuals()
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.Trigger:

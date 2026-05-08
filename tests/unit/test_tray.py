@@ -96,6 +96,33 @@ def test_assemblyai_disabled_when_unavailable(qapp):
     t.hide()
 
 
+def test_show_error_switches_to_error_state(tray):
+    tray.show_error("Deepgram: something broke")
+    assert tray._error_active is True
+    assert tray.toolTip() == "F9 Talk — Last session failed"
+
+
+def test_clear_error_reverts_to_active(tray):
+    tray.show_error("oops")
+    tray.clear_error()
+    assert tray._error_active is False
+    assert tray.toolTip() == "F9 Talk — Listening"
+
+
+def test_clear_error_is_noop_when_not_in_error(tray):
+    # Should not change tooltip or visuals
+    tray.clear_error()
+    assert tray._error_active is False
+    assert tray.toolTip() == "F9 Talk — Listening"
+
+
+def test_pause_takes_priority_over_error(tray):
+    tray.show_error("boom")
+    tray.toggle_pause()
+    # Paused tooltip wins, even with error active
+    assert tray.toolTip() == "F9 Talk — Paused"
+
+
 def test_quit_action_emits_quit_requested(tray):
     received: list[bool] = []
     tray.quit_requested.connect(lambda: received.append(True))
