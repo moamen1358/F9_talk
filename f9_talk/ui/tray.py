@@ -35,13 +35,20 @@ class DictateTray(QSystemTrayIcon):
     """
 
     pause_changed = Signal(bool)
-    provider_changed = Signal(str)  # "deepgram" | "assemblyai"
+    provider_changed = Signal(str)  # "deepgram" | "assemblyai" | "gladia"
     quit_requested = Signal()
 
-    def __init__(self, qapp: QApplication, *, assemblyai_available: bool = True) -> None:
+    def __init__(
+        self,
+        qapp: QApplication,
+        *,
+        assemblyai_available: bool = True,
+        gladia_available: bool = True,
+    ) -> None:
         super().__init__(qapp)
         self._paused = False
         self._assemblyai_available = assemblyai_available
+        self._gladia_available = gladia_available
         # Prefer the system theme icon (installed by the .deb at
         # /usr/share/icons/hicolor/.../f9-talk.png) so GNOME's AppIndicator
         # extension can resolve it via the freedesktop icon-theme system.
@@ -77,6 +84,14 @@ class DictateTray(QSystemTrayIcon):
         )
         provider_group.addAction(self._assemblyai_action)
         provider_menu.addAction(self._assemblyai_action)
+
+        self._gladia_action = QAction("Gladia (v2 live)", self, checkable=True)
+        self._gladia_action.setEnabled(self._gladia_available)
+        self._gladia_action.triggered.connect(
+            lambda: self.provider_changed.emit("gladia")
+        )
+        provider_group.addAction(self._gladia_action)
+        provider_menu.addAction(self._gladia_action)
 
         menu.addSeparator()
         menu.addAction(self._quit_action)

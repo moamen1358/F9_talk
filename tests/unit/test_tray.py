@@ -66,13 +66,14 @@ def test_menu_label_flips_with_state(tray):
     assert actions[0].text() == "Resume listening"
 
 
-def test_provider_submenu_has_both_choices(tray):
+def test_provider_submenu_has_three_choices(tray):
     actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
     submenu = actions[1].menu()
     sub_actions = submenu.actions()
     assert sub_actions[0].text() == "Deepgram (Nova-3)"
     assert sub_actions[0].isChecked() is True
     assert sub_actions[1].text() == "AssemblyAI (Universal)"
+    assert sub_actions[2].text() == "Gladia (v2 live)"
 
 
 def test_provider_change_emits_signal(tray):

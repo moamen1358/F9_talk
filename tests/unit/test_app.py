@@ -9,6 +9,7 @@ def _build_app():
     with (
         patch("f9_talk.app.DeepgramStreamingSTT"),
         patch("f9_talk.app.AssemblyAIStreamingSTT"),
+        patch("f9_talk.app.GladiaStreamingSTT"),
         patch("f9_talk.app.LocalWhisperSTT"),
         patch("f9_talk.app.MicStreamer"),
         patch("f9_talk.app.Typer"),
@@ -55,11 +56,15 @@ def test_set_cloud_provider_switches_active_backend():
     app = _build_app()
     app.cloud_stt_deepgram = MagicMock(name="dg")
     app.cloud_stt_assemblyai = MagicMock(name="aa")
+    app.cloud_stt_gladia = MagicMock(name="gl")
 
     assert app.cloud_stt is app.cloud_stt_deepgram
 
     app.set_cloud_provider("assemblyai")
     assert app.cloud_stt is app.cloud_stt_assemblyai
+
+    app.set_cloud_provider("gladia")
+    assert app.cloud_stt is app.cloud_stt_gladia
 
     app.set_cloud_provider("deepgram")
     assert app.cloud_stt is app.cloud_stt_deepgram

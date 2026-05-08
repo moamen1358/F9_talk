@@ -212,6 +212,7 @@ def main() -> int:
         tray = DictateTray(
             qapp,
             assemblyai_available=dictate.cloud_stt_assemblyai is not None,
+            gladia_available=dictate.cloud_stt_gladia is not None,
         )
         tray.pause_changed.connect(dictate.set_paused)
         tray.provider_changed.connect(dictate.set_cloud_provider)
