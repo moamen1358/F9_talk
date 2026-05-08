@@ -4,6 +4,13 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.3.1] — 2026-05-08
+
+### Fixed
+- **Deepgram WebSocket auto-reconnect**: after long uptime (~1 hour) the persistent Deepgram socket would close silently. F9 presses still showed the indicator animation but no audio reached the server (`finalize failed` in journalctl) and no text was typed — only an app restart recovered it. The close handler now kicks off a reconnect loop with exponential backoff (1 s → 30 s cap) and sessions resume automatically. `stop()` sets a shutdown flag so clean teardown does not trigger reconnect spam (`f9_talk/stt/deepgram.py`)
+
+---
+
 ## [0.3.0] — 2026-05-08
 
 ### Removed

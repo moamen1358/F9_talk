@@ -60,10 +60,17 @@ class DeepgramStreamingSTT:
         self._session_finals: list[str] = []
         self._final_arrived = threading.Event()
         self.last_error: str | None = None
+        self._shutting_down = False
+        self._reconnect_lock = threading.Lock()
 
     # ---------- lifecycle ----------
 
     def start(self) -> None:
+        self._shutting_down = False
+        self._open_connection()
+
+    def _open_connection(self) -> None:
+        """Open a fresh Deepgram WebSocket. Used by start() and the reconnect loop."""
         conn = self._client.listen.websocket.v("1")
         conn.on(LiveTranscriptionEvents.Open, self._on_open)
         conn.on(LiveTranscriptionEvents.Transcript, self._on_message)
@@ -93,12 +100,41 @@ class DeepgramStreamingSTT:
         log.info("Deepgram socket open (model=%s, language=%s)", self.model, self.language)
 
     def stop(self) -> None:
+        self._shutting_down = True
         if self._conn is not None:
             try:
                 self._conn.finish()
             except Exception:
                 pass
             self._conn = None
+
+    def _reconnect_loop(self) -> None:
+        """Auto-reconnect with exponential backoff after an unexpected close."""
+        if not self._reconnect_lock.acquire(blocking=False):
+            return  # another reconnect already in flight
+        try:
+            delay = 1.0
+            while not self._shutting_down and not self._connected.is_set():
+                time.sleep(delay)
+                if self._shutting_down:
+                    return
+                if self._conn is not None:
+                    try:
+                        self._conn.finish()
+                    except Exception:
+                        pass
+                    self._conn = None
+                try:
+                    log.info("Reconnecting Deepgram WebSocket...")
+                    self._open_connection()
+                    if self._connected.is_set():
+                        log.info("Deepgram WebSocket reconnected")
+                        return
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Deepgram reconnect failed: %s", e)
+                delay = min(delay * 2, 30.0)
+        finally:
+            self._reconnect_lock.release()
 
     # ---------- session API ----------
 
@@ -142,6 +178,10 @@ class DeepgramStreamingSTT:
     def _on_close(self, *_args, **_kwargs) -> None:
         self._connected.clear()
         log.info("Deepgram socket closed")
+        if not self._shutting_down:
+            threading.Thread(
+                target=self._reconnect_loop, daemon=True, name="deepgram-reconnect"
+            ).start()
 
     def _on_error(self, *_args, error=None, **_kwargs) -> None:
         log.error("Deepgram error: %s", error)
