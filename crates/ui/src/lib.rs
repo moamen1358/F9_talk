@@ -11,3 +11,6 @@ pub mod tray;
 
 pub use indicator::{IndicatorApp, IndicatorState};
 pub use positioning::Positioner;
+pub use tray::{
+    CloudProvider as TrayCloudProvider, TrayCommand, TrayHandle, VisualState as TrayVisualState,
+};

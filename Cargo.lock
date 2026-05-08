@@ -1168,13 +1168,18 @@ dependencies = [
 name = "f9-talk-ui"
 version = "0.4.0-dev"
 dependencies = [
+ "anyhow",
+ "crossbeam-channel",
  "eframe",
  "egui",
  "egui_extras",
  "f9-talk-audio",
  "f9-talk-core",
+ "glib",
+ "gtk",
  "image",
  "parking_lot",
+ "tokio",
  "tracing",
  "tray-icon",
  "x11rb",

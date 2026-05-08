@@ -18,9 +18,11 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
 use f9_talk_stt::{BackendEvent, Stt};
-use f9_talk_ui::{IndicatorApp, IndicatorState};
+use f9_talk_ui::{
+    IndicatorApp, IndicatorState, TrayCloudProvider, TrayCommand, TrayHandle, TrayVisualState,
+};
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -133,10 +135,34 @@ fn main() -> anyhow::Result<()> {
 
     let indicator_state = Arc::new(IndicatorState::new(rms_handle));
 
+    // Tray (M3 chunk 2). When --headless is set we skip the tray too;
+    // the binary becomes a pure CLI dictation pipe.
+    let tray_bundle = if cli.headless {
+        None
+    } else {
+        let initial = TrayVisualState {
+            paused: false,
+            error: false,
+            provider: provider
+                .map(provider_to_tray)
+                .unwrap_or(TrayCloudProvider::Assemblyai),
+        };
+        match f9_talk_ui::tray::spawn(initial, indicator_state.clone()) {
+            Ok((handle, cmd_rx)) => Some((handle, cmd_rx)),
+            Err(e) => {
+                warn!("tray unavailable: {e}; pause/quit/provider-switch via tray disabled");
+                None
+            }
+        }
+    };
+    let tray_handle: Option<TrayHandle> = tray_bundle.as_ref().map(|(h, _)| h.clone());
+
     let chord = cli.local_hotkey.clone();
     let cli_for_task = cli.clone();
     let secrets_for_task = secrets.clone();
     let state_for_task = indicator_state.clone();
+    let tray_cmd_rx = tray_bundle.map(|(_, rx)| rx);
+    let tray_handle_for_task = tray_handle.clone();
     runtime.spawn(async move {
         if let Err(e) = run_session_loop(
             &chord,
@@ -145,6 +171,8 @@ fn main() -> anyhow::Result<()> {
             &secrets_for_task,
             frame_rx,
             state_for_task,
+            tray_cmd_rx,
+            tray_handle_for_task,
         )
         .await
         {
@@ -329,14 +357,32 @@ async fn build_cloud_backend(
     }
 }
 
+fn provider_to_tray(p: CloudProvider) -> TrayCloudProvider {
+    match p {
+        CloudProvider::Assemblyai => TrayCloudProvider::Assemblyai,
+        CloudProvider::Deepgram => TrayCloudProvider::Deepgram,
+    }
+}
+
+fn provider_from_tray(p: TrayCloudProvider) -> CloudProvider {
+    match p {
+        TrayCloudProvider::Assemblyai => CloudProvider::Assemblyai,
+        TrayCloudProvider::Deepgram => CloudProvider::Deepgram,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_session_loop(
     chord: &str,
-    provider: Option<CloudProvider>,
+    initial_provider: Option<CloudProvider>,
     cli: &Cli,
     secrets: &HashMap<String, String>,
     mut frame_rx: mpsc::Receiver<f9_talk_audio::Frame>,
     indicator: Arc<IndicatorState>,
+    mut tray_cmd_rx: Option<mpsc::UnboundedReceiver<TrayCommand>>,
+    tray_handle: Option<TrayHandle>,
 ) -> anyhow::Result<()> {
+    let provider = initial_provider;
     let provider = match (cli.backend, provider) {
         (Backend::Cloud, None) => {
             eprintln!(
@@ -355,8 +401,9 @@ async fn run_session_loop(
         }
     };
 
-    let backend = build_cloud_backend(provider, secrets, &cli.keywords).await?;
-    let backend_name = backend.name();
+    let mut backend = build_cloud_backend(provider, secrets, &cli.keywords).await?;
+    let mut backend_name = backend.name();
+    let mut active_provider = provider;
 
     let (event_tx, mut event_rx) = mpsc::channel::<BackendEvent>(64);
     backend
@@ -364,6 +411,7 @@ async fn run_session_loop(
         .await
         .map_err(|e| anyhow::anyhow!("could not start STT backend ({backend_name}): {e}"))?;
     info!("STT backend ready: {backend_name}");
+    let mut paused = false;
 
     let mut hotkey_rx = match f9_talk_input::spawn_hotkey(chord) {
         Ok(rx) => rx,
@@ -388,11 +436,26 @@ async fn run_session_loop(
 
     let mut session: Option<SessionInProgress> = None;
 
+    // Macro-ish helper: tray_cmd_rx may be None (--headless), so we
+    // wrap recv in an always-pending future when it's missing.
+    async fn tray_recv(
+        rx: &mut Option<mpsc::UnboundedReceiver<TrayCommand>>,
+    ) -> Option<TrayCommand> {
+        match rx {
+            Some(r) => r.recv().await,
+            None => std::future::pending().await,
+        }
+    }
+
     loop {
         tokio::select! {
             evt = hotkey_rx.recv() => {
                 match evt {
                     Some(HotkeyEvent::Pressed) => {
+                        if paused {
+                            debug!("F9 pressed while paused — ignoring");
+                            continue;
+                        }
                         let press_at = Instant::now();
                         backend.begin_session().await;
                         indicator.set_recording(true);
@@ -427,6 +490,9 @@ async fn run_session_loop(
                             indicator.set_status_text(Some("⌨  Typing…".to_string()));
                             if let Err(e) = typer.type_text(&result.transcript) {
                                 warn!("typer failed: {e}");
+                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                            } else if let Some(t) = tray_handle.as_ref() {
+                                t.set_error(false);
                             }
                             indicator.set_status_text(None);
                         }
@@ -454,10 +520,76 @@ async fn run_session_loop(
             }
             evt = event_rx.recv() => {
                 match evt {
-                    Some(BackendEvent::SocketLost(msg)) => warn!("STT socket lost: {msg}"),
-                    Some(BackendEvent::SocketBack) => info!("STT socket reconnected"),
+                    Some(BackendEvent::SocketLost(msg)) => {
+                        warn!("STT socket lost: {msg}");
+                        if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                    }
+                    Some(BackendEvent::SocketBack) => {
+                        info!("STT socket reconnected");
+                        if let Some(t) = tray_handle.as_ref() { t.set_error(false); }
+                    }
                     Some(BackendEvent::Error(e)) => warn!("STT error: {e}"),
                     None => {}
+                }
+            }
+            cmd = tray_recv(&mut tray_cmd_rx) => {
+                let Some(cmd) = cmd else { continue; };
+                match cmd {
+                    TrayCommand::PauseToggled(p) => {
+                        paused = p;
+                        if let Some(t) = tray_handle.as_ref() { t.set_paused(p); }
+                        if p {
+                            indicator.set_recording(false);
+                            // Cancel any in-flight session.
+                            if session.take().is_some() {
+                                let _ = backend.end_session(Duration::from_millis(50)).await;
+                            }
+                        }
+                        info!("tray: {}", if p { "paused" } else { "resumed" });
+                    }
+                    TrayCommand::ProviderSelected(new_provider) => {
+                        let new_provider = provider_from_tray(new_provider);
+                        if active_provider == new_provider {
+                            continue;
+                        }
+                        info!("tray: switching cloud provider → {new_provider:?}");
+                        backend.stop().await;
+                        match build_cloud_backend(new_provider, secrets, &cli.keywords).await {
+                            Ok(new_backend) => {
+                                let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
+                                if let Err(e) = new_backend.start(new_tx).await {
+                                    error!("new backend ({new_provider:?}) failed to start: {e}");
+                                    if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                                    continue;
+                                }
+                                backend = new_backend;
+                                backend_name = backend.name();
+                                event_rx = new_rx;
+                                active_provider = new_provider;
+                                if let Some(t) = tray_handle.as_ref() {
+                                    t.set_provider(provider_to_tray(new_provider));
+                                    t.set_error(false);
+                                }
+                                info!("STT backend now: {backend_name}");
+                            }
+                            Err(e) => {
+                                error!("could not build {new_provider:?} backend: {e}");
+                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                            }
+                        }
+                    }
+                    TrayCommand::EditKeys => {
+                        // M3 chunk 3 (egui keys dialog) hooks here.
+                        warn!(
+                            "tray: 'API Keys…' clicked — dialog UI lands in M3 chunk 3. \
+                             For now: edit ~/.config/F9_talk/secrets.env directly + restart"
+                        );
+                    }
+                    TrayCommand::Quit => {
+                        info!("tray: Quit");
+                        backend.stop().await;
+                        std::process::exit(0);
+                    }
                 }
             }
             _ = tokio::signal::ctrl_c() => {

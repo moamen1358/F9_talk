@@ -58,6 +58,8 @@ egui = "0.32"
 egui_extras = "0.32"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tray-icon = "0.21"
+gtk = "0.18"
+glib = "0.18"
 
 # X11 helpers
 x11rb = "0.13"
