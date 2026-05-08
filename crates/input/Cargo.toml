@@ -14,6 +14,9 @@ path = "src/lib.rs"
 default = []
 ydotool-fallback = []
 
+[lints.rust]
+unsafe_code = "allow"  # evdev uinput crate uses unsafe internally; we don't.
+
 [dependencies]
 f9-talk-core = { path = "../core" }
 tokio = { workspace = true }

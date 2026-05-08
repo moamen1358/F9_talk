@@ -330,7 +330,7 @@ async fn run_session_loop(
         "f9-talk M2 ready. hold {} to dictate (cloud={backend_name}, Ctrl-C to quit)",
         chord
     );
-    let _typer = Typer::new()?;
+    let mut typer = Typer::new()?;
 
     spawn_wakeup_watcher();
 
@@ -366,8 +366,8 @@ async fn run_session_loop(
                         );
                         if result.transcript.is_empty() {
                             info!("(no speech detected)");
-                        } else {
-                            info!(target: "f9_talk::typer", "would type: {:?}", result.transcript);
+                        } else if let Err(e) = typer.type_text(&result.transcript) {
+                            warn!("typer failed: {e}");
                         }
                     }
                     None => {

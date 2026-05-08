@@ -1,0 +1,6 @@
+# Allow members of the `input` group to write to /dev/uinput.
+# Installed by the f9-talk .deb postinst into /etc/udev/rules.d/.
+# After install, run:
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# (or reboot) for the rule to take effect.
+KERNEL=="uinput", MODE="0660", GROUP="input"
