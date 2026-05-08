@@ -24,6 +24,9 @@ env/
 *.swo
 .DS_Store
 
+# Build artifacts
+*.deb
+
 # Secrets
 .env
 secrets.env
