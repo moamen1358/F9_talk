@@ -63,9 +63,9 @@ assets = [
     # Menu entry + autostart
     ["../../packaging/debian/applications/f9-talk.desktop", "usr/share/applications/", "644"],
     ["../../packaging/debian/autostart/f9-talk.desktop", "etc/xdg/autostart/", "644"],
-    # Icons (re-used from the Python source tree)
-    ["../../f9_talk/assets/f9-talk.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
-    ["../../f9_talk/assets/f9-talk.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    # Icons (top-level assets/ dir)
+    ["../../assets/f9-talk.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../assets/f9-talk.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
     # Udev rule for /dev/uinput
     ["../../packaging/debian/udev/99-f9-talk.rules", "etc/udev/rules.d/", "644"],
     # README / changelog as docs

@@ -120,9 +120,8 @@ sudo nano /etc/xdg/autostart/f9-talk.desktop
 ## Build from source
 
 ```bash
-git clone https://github.com/moamen1358/F9_talk.git
-cd F9_talk
-git checkout v0.4-rust          # or main once v0.4.0 is released
+git clone https://github.com/moamen1358/f9-talk.git
+cd f9-talk
 
 # Rust toolchain (rustup); skip if already installed
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y

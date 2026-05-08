@@ -1,74 +1,97 @@
 # Contributing to f9-talk
 
-Thank you for your interest. This guide covers everything you need to submit a quality contribution.
+Thank you for your interest. This guide covers everything you need to submit a quality contribution to the v0.4 Rust codebase.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/moamen1358/F9_talk.git
-cd F9_talk
+git clone https://github.com/moamen1358/f9-talk.git
+cd f9-talk
 
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+# Rust toolchain (rustup); skip if already installed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-sudo apt install pulseaudio-utils xdotool libxcb-cursor0
+# Linux build deps
+sudo apt install build-essential pkg-config \
+    libasound2-dev libdbus-1-dev libudev-dev libevdev-dev \
+    libgtk-3-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+    libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev \
+    libayatana-appindicator3-dev libssl-dev libxdo-dev libclang-dev
+
+# Optional: NVIDIA toolkit only if you want --features cuda for local STT
+sudo apt install nvidia-cuda-toolkit
 ```
 
-For the local Whisper backend (optional, requires NVIDIA GPU):
+For runtime testing you also need to be in the `input` group + have the udev rule installed (see `packaging/README.md` and the **Install** section of the main `README.md`).
+
+## Building + running
 
 ```bash
-.venv/bin/pip install -e '.[local]'
+cargo build --release                    # default features (CPU whisper + cloud)
+cargo build --release --features cuda    # adds GPU acceleration for local Whisper
+cargo run --release -- --help            # see all CLI flags
+
+# Headless smoke (no indicator window — useful for CI / SSH)
+cargo run --release -- --backend cloud --headless -v
 ```
 
-## Running tests
+The binary lives at `target/release/f9-talk`.
+
+## Workspace layout
+
+```
+crates/
+├── core/       FRAME_BYTES, SAMPLE_RATE_HZ, FRAME_CHANNEL_CAPACITY constants
+├── input/      hotkey-listener wrapper (chord parser + 50 ms debounce) + typer
+├── audio/      cpal mic streamer with linear resampler + auto-restart
+├── stt/        Stt trait + AssemblyAI / Deepgram / whisper-rs implementations
+├── ui/         egui IndicatorApp + tray-icon + keys dialog + x11rb positioner
+├── translate/  Lingva (primary) + MyMemory (fallback) HTTP client
+└── app/        clap CLI + abstract-socket lock + glue
+```
+
+## CI bar before opening a PR
 
 ```bash
-.venv/bin/pytest tests/ -v
+# All four must pass green:
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --no-default-features --all-targets -- -D warnings
+cargo test --workspace
+cargo deny --all-features check       # licenses + advisories + bans
 ```
 
-Tests are organised under `tests/unit/`. They use `unittest.mock` to avoid requiring real audio hardware, a Deepgram API key, or a display.
+GitHub Actions runs the same checks on every push to `main` or PR — see `.github/workflows/rust-ci.yml`.
 
-## Linting
+## Style + conventions
 
-```bash
-.venv/bin/ruff check f9_talk/
-.venv/bin/ruff format --check f9_talk/
-```
+- Run `cargo fmt --all` before committing.
+- Keep `#![forbid(unsafe_code)]` on every lib crate. The one place we use `unsafe` (the abstract-socket `libc::bind` call in `crates/app/src/main.rs`) is in the binary, not a library.
+- Prefer `parking_lot::Mutex` over `std::sync::Mutex` for short critical sections inside the audio / paint loops.
+- Logging: `tracing` everywhere; use the `f9_talk::press` target for per-press telemetry so it's `journalctl --user -t f9-talk -f` greppable.
+- Add a `// Why:` comment on any `#[allow(...)]` so the next reader knows the trade-off.
 
-Both checks run automatically on every push and pull request via GitHub Actions.
+## Reporting issues
 
-## Project structure
+Useful info to attach:
 
-```
-f9_talk/
-├── app.py          — orchestration: hotkey → STT → translate → type
-├── cli.py          — argument parsing and application bootstrap
-├── audio/          — PulseAudio mic capture (parec subprocess)
-├── input/          — hotkey parsing and xdotool keystroke injection
-├── stt/            — Deepgram cloud and local Whisper backends
-├── translate/      — HTTP translation (Lingva + MyMemory fallback)
-└── ui/             — audio-reactive overlay indicator (PySide6/Qt)
+- **Distro + display server**: `lsb_release -ds`, `echo $XDG_SESSION_TYPE`.
+- **Audio stack**: `pactl info | grep "Server"` and `cpal` startup log line (`mic: device=… native_rate=… channels=…`).
+- **Per-press tracing line**: from `journalctl --user -t f9-talk -f`, the line with `press_to_release / first_byte_sent / release_to_final / transcript`.
+- **Whether `--headless` reproduces** — narrows down UI vs pipeline issues.
 
-tests/
-└── unit/           — fast, hardware-free unit tests
-```
+## Releasing
 
-See `docs/architecture.md` for a detailed threading model and latency budget.
+1. Bump `[workspace.package].version` in `Cargo.toml`.
+2. Add a section to `CHANGELOG.md`.
+3. `cargo deb -p f9-talk` produces `target/debian/f9-talk_<version>-1_amd64.deb`.
+4. Tag + push:
+   ```bash
+   git tag -a v0.X.Y -m "v0.X.Y"
+   git push origin v0.X.Y
+   ```
+5. Create a GitHub release at the tag and attach the `.deb`.
 
-## Submitting a pull request
+## License
 
-1. Fork the repository and create a branch from `main`
-2. Make your changes with tests where appropriate
-3. Ensure `ruff check` and `pytest` both pass locally
-4. Open a pull request — describe what changed and why
-
-## Commit style
-
-Use the imperative mood and keep the subject line under 72 characters:
-
-```
-Fix garbled typing when modifier keys are held
-Add --style flag for indicator animation
-```
-
-Reference issues with `Fixes #N` in the commit body when applicable.
+By contributing you agree your changes are released under the project's [MIT License](LICENSE).

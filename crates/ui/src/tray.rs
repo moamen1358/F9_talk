@@ -25,10 +25,9 @@ use tray_icon::{Icon, TrayIconBuilder};
 
 use crate::indicator::IndicatorState;
 
-/// Bundled brand icon. Source-of-truth lives at
-/// `f9_talk/assets/f9-talk.png` while we share a repo with the Python
-/// build; M4 packaging copies it to /usr/share/icons/hicolor/.
-const ICON_BYTES: &[u8] = include_bytes!("../../../f9_talk/assets/f9-talk.png");
+/// Bundled brand icon. Source at the workspace root `assets/` directory;
+/// cargo-deb copies it to `/usr/share/icons/hicolor/` at install time.
+const ICON_BYTES: &[u8] = include_bytes!("../../../assets/f9-talk.png");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloudProvider {
