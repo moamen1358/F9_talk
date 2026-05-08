@@ -8,9 +8,9 @@ import logging
 import re
 from urllib.parse import quote
 
-_LANG_RE = re.compile(r"^[a-zA-Z]{2,5}$")
-
 import requests
+
+_LANG_RE = re.compile(r"^[a-zA-Z]{2,5}$")
 
 log = logging.getLogger(__name__)
 
