@@ -20,8 +20,7 @@ use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
 use f9_talk_stt::{BackendEvent, Stt};
 use f9_talk_translate::Translator;
 use f9_talk_ui::{
-    IndicatorApp, IndicatorState, KeysDialogState, TrayCloudProvider, TrayCommand, TrayHandle,
-    TrayVisualState,
+    IndicatorApp, IndicatorState, KeysDialogState, TrayCommand, TrayHandle, TrayVisualState,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -39,9 +38,6 @@ struct Cli {
     #[arg(long, default_value = "f9")]
     local_hotkey: String,
 
-    #[arg(long, default_value = "f8")]
-    cloud_hotkey: String,
-
     #[arg(long)]
     target: Option<String>,
 
@@ -50,10 +46,6 @@ struct Cli {
 
     #[arg(long, default_value = "wave")]
     style: String,
-
-    /// Force a specific cloud provider (overrides auto-select).
-    #[arg(long, value_enum)]
-    cloud_provider: Option<CloudProvider>,
 
     /// Run headless (no indicator window). Useful for the M2 smoke
     /// path or autostart on non-X11/Wayland sessions.
@@ -69,12 +61,6 @@ enum Backend {
     Cloud,
     Local,
     Both,
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
-enum CloudProvider {
-    Assemblyai,
-    Deepgram,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -122,8 +108,6 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    let provider = pick_cloud_provider(cli.cloud_provider, &secrets);
-
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("f9-talk")
@@ -137,7 +121,7 @@ fn main() -> anyhow::Result<()> {
 
     let indicator_state = Arc::new(IndicatorState::new(rms_handle));
 
-    // Tray (M3 chunk 2). When --headless is set we skip the tray too;
+    // Tray. When --headless is set we skip the tray too;
     // the binary becomes a pure CLI dictation pipe.
     let tray_bundle = if cli.headless {
         None
@@ -145,14 +129,11 @@ fn main() -> anyhow::Result<()> {
         let initial = TrayVisualState {
             paused: false,
             error: false,
-            provider: provider
-                .map(provider_to_tray)
-                .unwrap_or(TrayCloudProvider::Assemblyai),
         };
         match f9_talk_ui::tray::spawn(initial, indicator_state.clone()) {
             Ok((handle, cmd_rx)) => Some((handle, cmd_rx)),
             Err(e) => {
-                warn!("tray unavailable: {e}; pause/quit/provider-switch via tray disabled");
+                warn!("tray unavailable: {e}; pause/quit via tray disabled");
                 None
             }
         }
@@ -171,7 +152,6 @@ fn main() -> anyhow::Result<()> {
     runtime.spawn(async move {
         if let Err(e) = run_session_loop(
             &chord,
-            provider,
             &cli_for_task,
             secrets_for_task,
             frame_rx,
@@ -296,7 +276,7 @@ fn bind_abstract(sock: &UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
 
 fn load_secrets() -> HashMap<String, String> {
     let mut out = HashMap::new();
-    for key in ["DEEPGRAM_API_KEY", "ASSEMBLYAI_API_KEY", "GLADIA_API_KEY"] {
+    for key in ["DEEPGRAM_API_KEY", "GLADIA_API_KEY"] {
         if let Ok(v) = std::env::var(key) {
             if !v.is_empty() {
                 out.insert(key.to_string(), v);
@@ -326,53 +306,18 @@ fn secrets_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".config/F9_talk/secrets.env"))
 }
 
-fn pick_cloud_provider(
-    forced: Option<CloudProvider>,
-    secrets: &HashMap<String, String>,
-) -> Option<CloudProvider> {
-    if let Some(p) = forced {
-        return Some(p);
-    }
-    let has_aai = secrets.contains_key("ASSEMBLYAI_API_KEY");
-    let has_dg = secrets.contains_key("DEEPGRAM_API_KEY");
-    if has_aai {
-        Some(CloudProvider::Assemblyai)
-    } else if has_dg {
-        Some(CloudProvider::Deepgram)
-    } else {
-        None
-    }
-}
-
 async fn build_cloud_backend(
-    provider: CloudProvider,
     secrets: &HashMap<String, String>,
     keywords: &[String],
 ) -> anyhow::Result<Arc<dyn Stt>> {
-    match provider {
-        CloudProvider::Assemblyai => {
-            let key = secrets
-                .get("ASSEMBLYAI_API_KEY")
-                .cloned()
-                .unwrap_or_default();
-            Ok(Arc::new(f9_talk_stt::assemblyai::AssemblyAi::new(
-                key,
-                f9_talk_stt::assemblyai::Config {
-                    keyterms: keywords.to_vec(),
-                },
-            )))
-        }
-        CloudProvider::Deepgram => {
-            let key = secrets.get("DEEPGRAM_API_KEY").cloned().unwrap_or_default();
-            Ok(Arc::new(f9_talk_stt::deepgram::Deepgram::new(
-                key,
-                f9_talk_stt::deepgram::Config {
-                    keywords: keywords.to_vec(),
-                    ..Default::default()
-                },
-            )))
-        }
-    }
+    let key = secrets.get("DEEPGRAM_API_KEY").cloned().unwrap_or_default();
+    Ok(Arc::new(f9_talk_stt::deepgram::Deepgram::new(
+        key,
+        f9_talk_stt::deepgram::Config {
+            keywords: keywords.to_vec(),
+            ..Default::default()
+        },
+    )))
 }
 
 fn build_local_backend(keywords: &[String]) -> Arc<dyn Stt> {
@@ -384,24 +329,9 @@ fn build_local_backend(keywords: &[String]) -> Arc<dyn Stt> {
     ))
 }
 
-fn provider_to_tray(p: CloudProvider) -> TrayCloudProvider {
-    match p {
-        CloudProvider::Assemblyai => TrayCloudProvider::Assemblyai,
-        CloudProvider::Deepgram => TrayCloudProvider::Deepgram,
-    }
-}
-
-fn provider_from_tray(p: TrayCloudProvider) -> CloudProvider {
-    match p {
-        TrayCloudProvider::Assemblyai => CloudProvider::Assemblyai,
-        TrayCloudProvider::Deepgram => CloudProvider::Deepgram,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn run_session_loop(
     chord: &str,
-    initial_provider: Option<CloudProvider>,
     cli: &Cli,
     mut secrets: HashMap<String, String>,
     mut frame_rx: mpsc::Receiver<f9_talk_audio::Frame>,
@@ -410,33 +340,21 @@ async fn run_session_loop(
     tray_handle: Option<TrayHandle>,
     keys_dialog: KeysDialogState,
 ) -> anyhow::Result<()> {
-    let provider = initial_provider;
-    let (mut backend, mut active_provider) = match (cli.backend, provider) {
-        (Backend::Cloud, None) => {
-            eprintln!(
-                "f9-talk: --backend cloud needs ASSEMBLYAI_API_KEY or DEEPGRAM_API_KEY \
-                 set in the environment or in ~/.config/F9_talk/secrets.env"
-            );
-            std::process::exit(2);
+    let mut backend = match cli.backend {
+        Backend::Cloud => {
+            if !secrets.contains_key("DEEPGRAM_API_KEY") {
+                eprintln!(
+                    "f9-talk: --backend cloud needs DEEPGRAM_API_KEY \
+                     set in the environment or in ~/.config/F9_talk/secrets.env"
+                );
+                std::process::exit(2);
+            }
+            build_cloud_backend(&secrets, &cli.keywords).await?
         }
-        (Backend::Cloud, Some(p)) => (build_cloud_backend(p, &secrets, &cli.keywords).await?, p),
-        (Backend::Local, _) => {
-            // Local-only — `active_provider` stays at AssemblyAI as a
-            // sentinel; tray provider switches are no-ops in this mode.
-            (
-                build_local_backend(&cli.keywords),
-                CloudProvider::Assemblyai,
-            )
-        }
-        (Backend::Both, _) => {
-            warn!(
-                "--backend both is not yet split between F9/F8 in v0.4 — \
-                 falling back to --backend local for now"
-            );
-            (
-                build_local_backend(&cli.keywords),
-                CloudProvider::Assemblyai,
-            )
+        Backend::Local => build_local_backend(&cli.keywords),
+        Backend::Both => {
+            warn!("--backend both is not implemented yet; falling back to --backend local");
+            build_local_backend(&cli.keywords)
         }
     };
     let mut backend_name = backend.name();
@@ -482,7 +400,7 @@ async fn run_session_loop(
         });
 
     info!(
-        "f9-talk M3 ready. hold {} to dictate (cloud={backend_name}, target={:?}, Ctrl-C to quit)",
+        "f9-talk ready. hold {} to dictate (backend={backend_name}, target={:?}, Ctrl-C to quit)",
         chord, cli.target
     );
     let mut typer = Typer::new()?;
@@ -608,40 +526,9 @@ async fn run_session_loop(
                         }
                         info!("tray: {}", if p { "paused" } else { "resumed" });
                     }
-                    TrayCommand::ProviderSelected(new_provider) => {
-                        let new_provider = provider_from_tray(new_provider);
-                        if active_provider == new_provider {
-                            continue;
-                        }
-                        info!("tray: switching cloud provider → {new_provider:?}");
-                        backend.stop().await;
-                        match build_cloud_backend(new_provider, &secrets, &cli.keywords).await {
-                            Ok(new_backend) => {
-                                let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
-                                if let Err(e) = new_backend.start(new_tx).await {
-                                    error!("new backend ({new_provider:?}) failed to start: {e}");
-                                    if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
-                                    continue;
-                                }
-                                backend = new_backend;
-                                backend_name = backend.name();
-                                event_rx = new_rx;
-                                active_provider = new_provider;
-                                if let Some(t) = tray_handle.as_ref() {
-                                    t.set_provider(provider_to_tray(new_provider));
-                                    t.set_error(false);
-                                }
-                                info!("STT backend now: {backend_name}");
-                            }
-                            Err(e) => {
-                                error!("could not build {new_provider:?} backend: {e}");
-                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
-                            }
-                        }
-                    }
                     TrayCommand::EditKeys => {
-                        let (cur_aai, cur_dg) = f9_talk_ui::keys_dialog::read_current_keys();
-                        keys_dialog.open(cur_aai, cur_dg);
+                        let cur_dg = f9_talk_ui::keys_dialog::read_current_keys();
+                        keys_dialog.open(cur_dg);
                         info!("tray: opening keys dialog");
                     }
                     TrayCommand::Quit => {
@@ -658,38 +545,30 @@ async fn run_session_loop(
                     if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
                     continue;
                 }
-                if let Some(v) = saved.assemblyai.as_ref() {
-                    if v.is_empty() { secrets.remove("ASSEMBLYAI_API_KEY"); }
-                    else { secrets.insert("ASSEMBLYAI_API_KEY".into(), v.clone()); }
-                }
                 if let Some(v) = saved.deepgram.as_ref() {
                     if v.is_empty() { secrets.remove("DEEPGRAM_API_KEY"); }
                     else { secrets.insert("DEEPGRAM_API_KEY".into(), v.clone()); }
-                }
-                let active_key_changed = match active_provider {
-                    CloudProvider::Assemblyai => saved.assemblyai.is_some(),
-                    CloudProvider::Deepgram => saved.deepgram.is_some(),
-                };
-                if active_key_changed {
-                    info!("active provider's key changed; rebuilding backend");
-                    backend.stop().await;
-                    match build_cloud_backend(active_provider, &secrets, &cli.keywords).await {
-                        Ok(new_backend) => {
-                            let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
-                            if let Err(e) = new_backend.start(new_tx).await {
-                                error!("backend rebuild failed: {e}");
-                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
-                            } else {
-                                backend = new_backend;
-                                backend_name = backend.name();
-                                event_rx = new_rx;
-                                info!("STT backend rebuilt ({backend_name})");
-                                if let Some(t) = tray_handle.as_ref() { t.set_error(false); }
+                    if matches!(cli.backend, Backend::Cloud) {
+                        info!("Deepgram key changed; rebuilding backend");
+                        backend.stop().await;
+                        match build_cloud_backend(&secrets, &cli.keywords).await {
+                            Ok(new_backend) => {
+                                let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
+                                if let Err(e) = new_backend.start(new_tx).await {
+                                    error!("backend rebuild failed: {e}");
+                                    if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                                } else {
+                                    backend = new_backend;
+                                    backend_name = backend.name();
+                                    event_rx = new_rx;
+                                    info!("STT backend rebuilt ({backend_name})");
+                                    if let Some(t) = tray_handle.as_ref() { t.set_error(false); }
+                                }
                             }
-                        }
-                        Err(e) => {
-                            error!("could not rebuild backend: {e}");
-                            if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                            Err(e) => {
+                                error!("could not rebuild backend: {e}");
+                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                            }
                         }
                     }
                 }

@@ -4,6 +4,55 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [Unreleased] — Deepgram-only
+
+### Removed
+- **BREAKING**: AssemblyAI cloud backend removed (again — see 0.3.0). The
+  Rust port in 0.4.0 brought it back, but Universal-3 Pro Streaming still
+  doesn't fit hold-to-talk: sessions close after every `Terminate`,
+  multi-turn finalization adds 1–2 s of latency, and long presses get
+  truncated to the latest cumulative-replacement turn. Three rounds of
+  patches (frame coalescing for the 50–1000 ms input rule, zero-backoff
+  reconnect on clean close, multi-turn accumulator) made it work but
+  Deepgram Nova-3 is structurally a better fit for press/release UX.
+- `crates/stt/src/assemblyai.rs` deleted; `pub mod assemblyai` removed
+  from `f9-talk-stt`.
+- `--cloud-provider` CLI flag removed (only one cloud backend left).
+- `--cloud-hotkey` CLI flag removed — it was declared but never wired
+  to anything, so passing it had no effect.
+- Cloud-provider submenu removed from the tray.
+- AssemblyAI field removed from the **API Keys…** dialog.
+- `ASSEMBLYAI_API_KEY` no longer read from environment or
+  `secrets.env`. Existing entries in your `secrets.env` are ignored
+  silently and can be deleted by hand.
+
+### Changed
+- Deepgram is now the only cloud backend; `--backend cloud` requires
+  `DEEPGRAM_API_KEY`.
+- Deepgram reconnect no longer suffers cascading backoff after long
+  uptime. A session that opened successfully and then dropped (network
+  blip, server restart, idle timeout) reconnects at the initial 1 s
+  delay instead of doubling up to the 30 s cap. Fresh-connect failures
+  still use exponential backoff.
+
+### Internal
+- Extracted `parse_final` from Deepgram's `handle_text` and added 9 unit
+  tests covering finals, partials, missing fields, malformed JSON, and
+  multi-alternative payloads.
+- Removed dead `last_error` field from Deepgram's shared state.
+- Removed the `_unused()` stub from `keys_dialog.rs` and the now-unused
+  `warn` import.
+
+### Migration from 0.4.0
+- If you had `ASSEMBLYAI_API_KEY` in `~/.config/F9_talk/secrets.env`,
+  it's safe to delete that line.
+- If you used `--cloud-provider deepgram` in autostart, drop the flag —
+  Deepgram is the default and only option now.
+- The tray no longer has a "Cloud provider" submenu; pause/quit/keys
+  are unchanged.
+
+---
+
 ## [0.4.0] — 2026-05-08 — Rust rewrite
 
 **BREAKING.** F9 Talk is now a single statically-linked Rust binary.

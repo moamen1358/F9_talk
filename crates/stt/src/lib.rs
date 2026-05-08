@@ -1,9 +1,8 @@
 //! STT backend trait + concrete impls.
 //!
 //! Every backend implements [`Stt`] (async). v1 wraps:
-//! - [`assemblyai::AssemblyAi`] — Universal-3 Pro Streaming (default cloud)
-//! - [`deepgram::Deepgram`] — Nova-3 (alt cloud)
-//! - whisper-rs (`cuda` feature, lands later in M2)
+//! - [`deepgram::Deepgram`] — Nova-3 streaming (cloud)
+//! - [`whisper::WhisperLocal`] — whisper.cpp via whisper-rs (offline)
 //!
 //! All backends share the same press/release-driven session model:
 //!
@@ -17,7 +16,6 @@
 
 #![forbid(unsafe_code)]
 
-pub mod assemblyai;
 pub mod deepgram;
 pub mod whisper;
 
@@ -67,7 +65,7 @@ pub enum SttError {
 /// keepalive logic belongs inside the implementation.
 #[async_trait]
 pub trait Stt: Send + Sync {
-    /// Static label for log lines (`"assemblyai"`, `"deepgram"`, …).
+    /// Static label for log lines (`"deepgram"`, `"whisper.cpp"`, …).
     fn name(&self) -> &'static str;
 
     /// Open the persistent WebSocket / load the model. Called once at
@@ -89,9 +87,9 @@ pub trait Stt: Send + Sync {
     async fn stop(&self);
 }
 
-/// The cloud backends require 16 kHz mono s16le PCM. The cpal streamer
-/// gives us the device's native sample rate (often 44.1 / 48 kHz). For
-/// now we resample server-side via the cloud (both AssemblyAI and
-/// Deepgram accept any sample_rate query param). M2 will do client-side
-/// resampling once we add a deterministic resampler crate.
+/// The cloud backend requires 16 kHz mono s16le PCM. The cpal streamer
+/// gives us the device's native sample rate (often 44.1 / 48 kHz). We
+/// declare 16 kHz to Deepgram via the `sample_rate` query param and let
+/// the server resample. M2 will do client-side resampling once we add a
+/// deterministic resampler crate.
 pub const STT_SAMPLE_RATE: u32 = 16_000;

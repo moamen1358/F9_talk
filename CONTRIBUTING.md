@@ -44,7 +44,7 @@ crates/
 ├── core/       FRAME_BYTES, SAMPLE_RATE_HZ, FRAME_CHANNEL_CAPACITY constants
 ├── input/      hotkey-listener wrapper (chord parser + 50 ms debounce) + typer
 ├── audio/      cpal mic streamer with linear resampler + auto-restart
-├── stt/        Stt trait + AssemblyAI / Deepgram / whisper-rs implementations
+├── stt/        Stt trait + Deepgram + whisper-rs implementations
 ├── ui/         egui IndicatorApp + tray-icon + keys dialog + x11rb positioner
 ├── translate/  Lingva (primary) + MyMemory (fallback) HTTP client
 └── app/        clap CLI + abstract-socket lock + glue

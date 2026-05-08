@@ -62,13 +62,18 @@ pub struct Deepgram {
 struct SharedState {
     recording: Mutex<bool>,
     session_finals: Mutex<Vec<String>>,
-    /// One-shot signal published by `_on_message` when a final arrives
+    /// One-shot signal published by `handle_text` when a final arrives
     /// after end_session has set recording=false. Per-session: replaced
     /// at the start of every end_session() call so a late final from a
     /// previous press can never wake the next press's await early.
     final_signal: Mutex<Option<oneshot::Sender<()>>>,
-    last_error: Mutex<Option<String>>,
     shutting_down: std::sync::atomic::AtomicBool,
+    /// True once the current attempt's `connect_async` has succeeded.
+    /// The reconnect loop reads this to decide whether to apply
+    /// exponential backoff: a session that was healthy and then dropped
+    /// (network blip, server restart, idle timeout) reconnects at
+    /// `RECONNECT_INITIAL` instead of doubling forever.
+    had_successful_connect: std::sync::atomic::AtomicBool,
 }
 
 enum Cmd {
@@ -86,8 +91,8 @@ impl Deepgram {
                 recording: Mutex::new(false),
                 session_finals: Mutex::new(Vec::new()),
                 final_signal: Mutex::new(None),
-                last_error: Mutex::new(None),
                 shutting_down: std::sync::atomic::AtomicBool::new(false),
+                had_successful_connect: std::sync::atomic::AtomicBool::new(false),
             }),
             cmd_tx: Mutex::new(None),
         }
@@ -146,7 +151,6 @@ impl Stt for Deepgram {
         // Drop any sender from a previous end_session — late finals
         // from the prior press will find None and silently drop.
         *self.state.final_signal.lock() = None;
-        *self.state.last_error.lock() = None;
     }
 
     async fn send_audio(&self, pcm: &[u8]) {
@@ -222,7 +226,15 @@ async fn reconnect_loop(
         {
             return;
         }
-        match run_connection(&api_key, &url, &mut cmd_rx, &state).await {
+        let outcome = run_connection(&api_key, &url, &mut cmd_rx, &state).await;
+        // If the previous attempt got far enough to actually open the
+        // socket, treat the next reconnect as fresh — backoff is for
+        // genuine connect failures, not for an in-flight session that
+        // dropped after working.
+        let was_healthy = state
+            .had_successful_connect
+            .swap(false, std::sync::atomic::Ordering::Relaxed);
+        match outcome {
             ConnectionEnd::Stop => return,
             ConnectionEnd::Closed => {
                 if state
@@ -242,6 +254,9 @@ async fn reconnect_loop(
             }
         }
 
+        if was_healthy {
+            backoff = RECONNECT_INITIAL;
+        }
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(RECONNECT_CAP);
         if state
@@ -287,6 +302,9 @@ async fn run_connection(
         Err(e) => return ConnectionEnd::Error(format!("connect: {e}")),
     };
     info!("Deepgram socket open (model query in URL)");
+    state
+        .had_successful_connect
+        .store(true, std::sync::atomic::Ordering::Relaxed);
 
     let outcome = pump_messages(stream, cmd_rx, state).await;
     info!("Deepgram socket closed: {outcome:?}");
@@ -364,34 +382,35 @@ struct DgAlternative {
     transcript: String,
 }
 
-fn handle_text(text: &str, state: &Arc<SharedState>) {
-    let parsed: DgMessage = match serde_json::from_str(text) {
-        Ok(m) => m,
-        Err(e) => {
-            trace!("dg: non-JSON / unknown payload ({e}): {text:?}");
-            return;
-        }
-    };
+/// Extract a non-empty final transcript out of one Deepgram text frame.
+/// Returns `None` for non-`Results` messages, partials (`is_final=false`),
+/// missing alternatives, empty/whitespace transcripts, or unparseable
+/// JSON. Pure — used both by the live message handler and unit tests.
+fn parse_final(text: &str) -> Option<String> {
+    let parsed: DgMessage = serde_json::from_str(text).ok()?;
     if parsed.msg_type.as_deref() != Some("Results") {
-        return;
-    }
-    let Some(channel) = parsed.channel else {
-        return;
-    };
-    let Some(alt) = channel.alternatives.into_iter().next() else {
-        return;
-    };
-    let transcript = alt.transcript.trim();
-    if transcript.is_empty() {
-        return;
+        return None;
     }
     if !parsed.is_final.unwrap_or(false) {
-        return;
+        return None;
     }
+    let alt = parsed.channel?.alternatives.into_iter().next()?;
+    let trimmed = alt.transcript.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
 
-    let mut finals = state.session_finals.lock();
-    finals.push(transcript.to_string());
-    drop(finals);
+fn handle_text(text: &str, state: &Arc<SharedState>) {
+    let Some(transcript) = parse_final(text) else {
+        // Non-JSON, partial, or otherwise uninteresting — log at trace
+        // so debug logs don't get spammed by every interim Result.
+        trace!("dg: skipped payload: {text:?}");
+        return;
+    };
+
+    state.session_finals.lock().push(transcript.clone());
     debug!("dg final: {transcript:?}");
 
     if !*state.recording.lock() {
@@ -402,5 +421,74 @@ fn handle_text(text: &str, state: &Arc<SharedState>) {
         if let Some(tx) = state.final_signal.lock().take() {
             let _ = tx.send(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn results(transcript: &str, is_final: bool) -> String {
+        format!(
+            r#"{{"type":"Results","is_final":{is_final},"channel":{{"alternatives":[{{"transcript":"{transcript}"}}]}}}}"#
+        )
+    }
+
+    #[test]
+    fn final_results_message_yields_transcript() {
+        let payload = results("Hello world.", true);
+        assert_eq!(parse_final(&payload).as_deref(), Some("Hello world."));
+    }
+
+    #[test]
+    fn partial_results_returns_none() {
+        let payload = results("Hello", false);
+        assert!(parse_final(&payload).is_none());
+    }
+
+    #[test]
+    fn non_results_message_returns_none() {
+        let metadata = r#"{"type":"Metadata","request_id":"abc"}"#;
+        let speech_started = r#"{"type":"SpeechStarted","timestamp":0.5}"#;
+        assert!(parse_final(metadata).is_none());
+        assert!(parse_final(speech_started).is_none());
+    }
+
+    #[test]
+    fn empty_or_whitespace_transcript_returns_none() {
+        assert!(parse_final(&results("", true)).is_none());
+        assert!(parse_final(&results("   ", true)).is_none());
+        assert!(parse_final(&results("\t\n", true)).is_none());
+    }
+
+    #[test]
+    fn missing_channel_returns_none() {
+        let payload = r#"{"type":"Results","is_final":true}"#;
+        assert!(parse_final(payload).is_none());
+    }
+
+    #[test]
+    fn empty_alternatives_returns_none() {
+        let payload = r#"{"type":"Results","is_final":true,"channel":{"alternatives":[]}}"#;
+        assert!(parse_final(payload).is_none());
+    }
+
+    #[test]
+    fn malformed_json_returns_none_quietly() {
+        assert!(parse_final("not json").is_none());
+        assert!(parse_final("{partial").is_none());
+        assert!(parse_final("").is_none());
+    }
+
+    #[test]
+    fn first_alternative_wins_when_multiple() {
+        let payload = r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"first"},{"transcript":"second"}]}}"#;
+        assert_eq!(parse_final(payload).as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn transcript_is_trimmed() {
+        let payload = results("  spaced out  ", true);
+        assert_eq!(parse_final(&payload).as_deref(), Some("spaced out"));
     }
 }

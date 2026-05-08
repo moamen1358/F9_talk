@@ -45,10 +45,10 @@ maintainer = "Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
 copyright = "2026, Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
 license-file = ["../../LICENSE", "0"]
 extended-description = """Hold F9 to dictate; text appears at your cursor.
-Cloud STT via AssemblyAI Universal-3 Pro Streaming (default) or Deepgram
-Nova-3, or local whisper.cpp (optional CUDA). Audio-reactive overlay
-indicator and system-tray controls. Linux-only (X11 + Wayland on
-compositors that support always-on-top transparent windows)."""
+Cloud STT via Deepgram Nova-3 streaming, or local whisper.cpp
+(optional CUDA). Audio-reactive overlay indicator and system-tray
+controls. Linux-only (X11 + Wayland on compositors that support
+always-on-top transparent windows)."""
 section = "utils"
 priority = "optional"
 # Replaces / Conflicts on the Python f9-talk so `dpkg -i` cleanly

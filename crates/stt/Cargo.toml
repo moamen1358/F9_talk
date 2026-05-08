@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "F9 Talk: STT backend trait + AssemblyAI / Deepgram / local Whisper impls."
+description = "F9 Talk: STT backend trait + Deepgram Nova-3 / local Whisper impls."
 
 [lib]
 path = "src/lib.rs"

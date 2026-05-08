@@ -2,36 +2,31 @@
 //! picks "API Keys…" from the tray. Saves to
 //! `~/.config/F9_talk/secrets.env` preserving comments + other entries.
 //!
-//! Mirrors `f9_talk/ui/keys_dialog.py` — two rows (AssemblyAI + Deepgram),
-//! each with a Show/Hide toggle, plus Save/Cancel buttons.
+//! Single row (Deepgram Nova-3) with a Show/Hide toggle + Save/Cancel.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tracing::{info, warn};
+use tracing::info;
 
 const FRAME_WIDTH: f32 = 460.0;
-const FRAME_HEIGHT: f32 = 230.0;
+const FRAME_HEIGHT: f32 = 190.0;
 
 /// Saved keys handed off to the session loop after the user clicks Save.
 #[derive(Debug, Clone)]
 pub struct KeysSaved {
-    /// Some(value) if the user changed the AssemblyAI key (may be empty
+    /// Some(value) if the user changed the Deepgram key (may be empty
     /// to clear it). None means "leave as-is".
-    pub assemblyai: Option<String>,
     pub deepgram: Option<String>,
 }
 
 #[derive(Default)]
 struct Inner {
     open: bool,
-    aai: String,
     dg: String,
-    aai_show: bool,
     dg_show: bool,
-    aai_initial: String,
     dg_initial: String,
     pending_save: Option<KeysSaved>,
 }
@@ -48,13 +43,10 @@ impl KeysDialogState {
 
     /// Open the dialog with the current secrets pre-filled. Called from
     /// the tokio session loop on TrayCommand::EditKeys.
-    pub fn open(&self, current_aai: String, current_dg: String) {
+    pub fn open(&self, current_dg: String) {
         let mut s = self.inner.lock();
-        s.aai_initial = current_aai.clone();
         s.dg_initial = current_dg.clone();
-        s.aai = current_aai;
         s.dg = current_dg;
-        s.aai_show = false;
         s.dg_show = false;
         s.pending_save = None;
         s.open = true;
@@ -79,7 +71,7 @@ impl KeysDialogState {
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new(
-                "Stored at ~/.config/F9_talk/secrets.env — never sent anywhere except the chosen STT provider.",
+                "Stored at ~/.config/F9_talk/secrets.env — never sent anywhere except Deepgram.",
             )
             .size(11.0)
             .color(egui::Color32::from_gray(140)),
@@ -90,20 +82,7 @@ impl KeysDialogState {
             .num_columns(3)
             .spacing([8.0, 8.0])
             .show(ui, |ui| {
-                let aai_show = s.aai_show;
                 let dg_show = s.dg_show;
-
-                ui.label("AssemblyAI");
-                ui.add(
-                    egui::TextEdit::singleline(&mut s.aai)
-                        .desired_width(280.0)
-                        .password(!aai_show)
-                        .hint_text("paste your AssemblyAI key…"),
-                );
-                if ui.button(if aai_show { "Hide" } else { "Show" }).clicked() {
-                    s.aai_show = !aai_show;
-                }
-                ui.end_row();
 
                 ui.label("Deepgram");
                 ui.add(
@@ -126,10 +105,8 @@ impl KeysDialogState {
             }
             ui.add_space(8.0);
             if ui.button("Save").clicked() {
-                let aai_changed = s.aai != s.aai_initial;
                 let dg_changed = s.dg != s.dg_initial;
                 let saved = KeysSaved {
-                    assemblyai: aai_changed.then_some(s.aai.clone()),
                     deepgram: dg_changed.then_some(s.dg.clone()),
                 };
                 s.pending_save = Some(saved);
@@ -185,7 +162,7 @@ pub fn secrets_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".config/F9_talk/secrets.env"))
 }
 
-/// Persist the changed keys to `secrets.env`, preserving comments,
+/// Persist the changed key to `secrets.env`, preserving comments,
 /// blank lines, and any other keys (Gladia, MyMemory, etc.) untouched.
 /// Atomic write via a tmp + rename. Permissions clamped to 0600.
 pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
@@ -199,20 +176,10 @@ pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
 
     let mut out = String::new();
-    let mut saw_aai = false;
     let mut saw_dg = false;
     for raw_line in existing.lines() {
         let trimmed = raw_line.trim_start();
-        if trimmed.starts_with("ASSEMBLYAI_API_KEY=") || trimmed.starts_with("ASSEMBLYAI_API_KEY ")
-        {
-            saw_aai = true;
-            if let Some(v) = saved.assemblyai.as_ref() {
-                out.push_str(&format!("ASSEMBLYAI_API_KEY={v}\n"));
-                continue;
-            }
-        } else if trimmed.starts_with("DEEPGRAM_API_KEY=")
-            || trimmed.starts_with("DEEPGRAM_API_KEY ")
-        {
+        if trimmed.starts_with("DEEPGRAM_API_KEY=") || trimmed.starts_with("DEEPGRAM_API_KEY ") {
             saw_dg = true;
             if let Some(v) = saved.deepgram.as_ref() {
                 out.push_str(&format!("DEEPGRAM_API_KEY={v}\n"));
@@ -221,11 +188,6 @@ pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
         }
         out.push_str(raw_line);
         out.push('\n');
-    }
-    if !saw_aai {
-        if let Some(v) = saved.assemblyai.as_ref() {
-            out.push_str(&format!("ASSEMBLYAI_API_KEY={v}\n"));
-        }
     }
     if !saw_dg {
         if let Some(v) = saved.deepgram.as_ref() {
@@ -238,38 +200,27 @@ pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
     std::fs::rename(&tmp, &path)?;
     info!(
-        "secrets.env updated (aai_changed={}, dg_changed={})",
-        saved.assemblyai.is_some(),
+        "secrets.env updated (dg_changed={})",
         saved.deepgram.is_some()
     );
     Ok(())
 }
 
-/// Best-effort: parse the secrets.env to find the current values for
-/// pre-fill. Mirrors `app::load_secrets` but only extracts the keys we
-/// care about for the dialog.
-pub fn read_current_keys() -> (String, String) {
+/// Best-effort: parse the secrets.env to find the current Deepgram value
+/// for pre-fill. Mirrors `app::load_secrets` but only extracts the key
+/// the dialog cares about.
+pub fn read_current_keys() -> String {
     let Some(path) = secrets_path() else {
-        return (String::new(), String::new());
+        return String::new();
     };
     let Ok(text) = std::fs::read_to_string(&path) else {
-        return (String::new(), String::new());
+        return String::new();
     };
-    let mut aai = String::new();
-    let mut dg = String::new();
     for line in text.lines() {
         let line = line.trim();
-        if let Some(v) = line.strip_prefix("ASSEMBLYAI_API_KEY=") {
-            aai = v.trim().trim_matches('"').trim_matches('\'').to_string();
-        } else if let Some(v) = line.strip_prefix("DEEPGRAM_API_KEY=") {
-            dg = v.trim().trim_matches('"').trim_matches('\'').to_string();
+        if let Some(v) = line.strip_prefix("DEEPGRAM_API_KEY=") {
+            return v.trim().trim_matches('"').trim_matches('\'').to_string();
         }
     }
-    (aai, dg)
-}
-
-#[allow(dead_code)]
-fn _unused() {
-    // Keep `warn` import compiled even when no warning paths fire.
-    warn!("");
+    String::new()
 }

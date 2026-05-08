@@ -1,6 +1,5 @@
 //! System-tray icon with three visual states (active / paused / error)
-//! and the right-click menu (Pause/Resume + Cloud provider radio +
-//! Edit API Keys + Quit). Mirrors the Python `f9_talk/ui/tray.py`.
+//! and the right-click menu (Pause/Resume + Edit API Keys + Quit).
 //!
 //! Threading:
 //! - Lives on a dedicated `f9-talk-tray` thread because `tray-icon` on
@@ -9,18 +8,16 @@
 //!   reads `tray_icon::menu::MenuEvent::receiver()` (a global crossbeam
 //!   channel) and posts [`TrayCommand`] values into a tokio
 //!   `mpsc::UnboundedSender<TrayCommand>` the app loop owns.
-//! - State updates from the app (set_paused / set_error / set_provider)
-//!   are forwarded into the tray thread through a glib idle-callback
-//!   so all GTK calls stay on the GTK thread.
+//! - State updates from the app (set_paused / set_error) are forwarded
+//!   into the tray thread through a glib idle-callback so all GTK
+//!   calls stay on the GTK thread.
 
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
-use tray_icon::menu::{
-    CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, PredefinedMenuItem, Submenu,
-};
+use tray_icon::menu::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
 use crate::indicator::IndicatorState;
@@ -29,16 +26,9 @@ use crate::indicator::IndicatorState;
 /// cargo-deb copies it to `/usr/share/icons/hicolor/` at install time.
 const ICON_BYTES: &[u8] = include_bytes!("../../../assets/f9-talk.png");
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudProvider {
-    Assemblyai,
-    Deepgram,
-}
-
 #[derive(Debug, Clone)]
 pub enum TrayCommand {
     PauseToggled(bool),
-    ProviderSelected(CloudProvider),
     EditKeys,
     Quit,
 }
@@ -47,7 +37,6 @@ pub enum TrayCommand {
 pub struct VisualState {
     pub paused: bool,
     pub error: bool,
-    pub provider: CloudProvider,
 }
 
 /// Public handle returned to the app for runtime mutations. All
@@ -71,13 +60,6 @@ impl TrayHandle {
         let mut s = self.state.lock();
         if s.error != error {
             s.error = error;
-            *self.dirty.lock() = true;
-        }
-    }
-    pub fn set_provider(&self, p: CloudProvider) {
-        let mut s = self.state.lock();
-        if s.provider != p {
-            s.provider = p;
             *self.dirty.lock() = true;
         }
     }
@@ -134,31 +116,12 @@ fn run_tray_thread(
         state.lock().paused,
         None,
     );
-    let aai_item = CheckMenuItem::new(
-        "AssemblyAI (Universal-3 Pro Streaming)",
-        true,
-        matches!(state.lock().provider, CloudProvider::Assemblyai),
-        None,
-    );
-    let dg_item = CheckMenuItem::new(
-        "Deepgram (Nova-3)",
-        true,
-        matches!(state.lock().provider, CloudProvider::Deepgram),
-        None,
-    );
-    let provider_submenu = Submenu::with_items(
-        "Cloud provider",
-        true,
-        &[&aai_item as &dyn IsMenuItem, &dg_item as &dyn IsMenuItem],
-    )
-    .expect("submenu build");
     let keys_item = tray_icon::menu::MenuItem::new("API Keys…", true, None);
     let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
     let sep = PredefinedMenuItem::separator();
     let menu = Menu::with_items(&[
         &pause_item as &dyn IsMenuItem,
         &sep as &dyn IsMenuItem,
-        &provider_submenu as &dyn IsMenuItem,
         &keys_item as &dyn IsMenuItem,
         &sep as &dyn IsMenuItem,
         &quit_item as &dyn IsMenuItem,
@@ -181,8 +144,6 @@ fn run_tray_thread(
 
     // Forward MenuEvents (global crossbeam channel) to the tokio mpsc.
     let pause_id = pause_item.id().clone();
-    let aai_id = aai_item.id().clone();
-    let dg_id = dg_item.id().clone();
     let keys_id = keys_item.id().clone();
     let quit_id = quit_item.id().clone();
     spawn_menu_forwarder(
@@ -190,8 +151,6 @@ fn run_tray_thread(
         state.clone(),
         Ids {
             pause: pause_id,
-            aai: aai_id,
-            dg: dg_id,
             keys: keys_id,
             quit: quit_id,
         },
@@ -203,8 +162,6 @@ fn run_tray_thread(
     let dirty_for_tick = dirty;
     let icons_for_tick = icons;
     let pause_for_tick = pause_item;
-    let aai_for_tick = aai_item;
-    let dg_for_tick = dg_item;
     let _ = glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
         if !*dirty_for_tick.lock() {
             return glib::ControlFlow::Continue;
@@ -233,8 +190,6 @@ fn run_tray_thread(
             "Pause listening"
         });
         pause_for_tick.set_checked(s.paused);
-        aai_for_tick.set_checked(matches!(s.provider, CloudProvider::Assemblyai));
-        dg_for_tick.set_checked(matches!(s.provider, CloudProvider::Deepgram));
 
         // Sync indicator pause state too (so the wave doesn't paint
         // when the user hits Pause from the tray).
@@ -250,8 +205,6 @@ fn run_tray_thread(
 
 struct Ids {
     pause: MenuId,
-    aai: MenuId,
-    dg: MenuId,
     keys: MenuId,
     quit: MenuId,
 }
@@ -270,10 +223,6 @@ fn spawn_menu_forwarder(
                 let cmd = if id == &ids.pause {
                     let new_paused = !state.lock().paused;
                     Some(TrayCommand::PauseToggled(new_paused))
-                } else if id == &ids.aai {
-                    Some(TrayCommand::ProviderSelected(CloudProvider::Assemblyai))
-                } else if id == &ids.dg {
-                    Some(TrayCommand::ProviderSelected(CloudProvider::Deepgram))
                 } else if id == &ids.keys {
                     Some(TrayCommand::EditKeys)
                 } else if id == &ids.quit {
@@ -325,7 +274,7 @@ impl Icons {
     }
 }
 
-/// Pixel-level desaturation matching `f9_talk/ui/tray.py:_make_paused`.
+/// Pixel-level desaturation matching the legacy Python implementation.
 fn desaturate(rgba: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>) -> image::RgbaImage {
     let mut out = rgba.clone();
     for p in out.pixels_mut() {
@@ -337,7 +286,7 @@ fn desaturate(rgba: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>) -> image::Rgb
     out
 }
 
-/// Pixel-level red-tint matching `f9_talk/ui/tray.py:_make_error`.
+/// Pixel-level red-tint matching the legacy Python implementation.
 fn red_tint(rgba: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>) -> image::RgbaImage {
     let mut out = rgba.clone();
     for p in out.pixels_mut() {
