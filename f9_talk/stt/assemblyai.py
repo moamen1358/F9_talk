@@ -83,7 +83,10 @@ class AssemblyAIStreamingSTT:
             )
             client.on(StreamingEvents.Turn, self._on_turn)
             client.on(StreamingEvents.Error, self._on_error)
-            client.connect(StreamingParameters(sample_rate=self.sample_rate))
+            client.connect(StreamingParameters(
+                sample_rate=self.sample_rate,
+                speech_model="universal",
+            ))
             self._client = client
         except Exception as e:  # noqa: BLE001
             log.error("AssemblyAI connect failed: %s", e)
