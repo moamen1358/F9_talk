@@ -4,6 +4,84 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.4.0] — 2026-05-08 — Rust rewrite
+
+**BREAKING.** F9 Talk is now a single statically-linked Rust binary.
+The Python implementation under `f9_talk/` is preserved on the
+`v0.4-rust` branch's history but no longer ships in the .deb.
+
+### Why
+- Cold start drops from ~1 s to <100 ms.
+- Idle RAM drops from ~300 MB to <60 MB.
+- 13 MB single-binary install — no Python venv built in `postinst`,
+  no system Python needed.
+- Indicator + tray remain visually identical for the wave style.
+
+### Added
+- **AssemblyAI Universal-3 Pro Streaming** as the default cloud backend
+  (~150 ms P50, half of Deepgram). Auto-selected when an `ASSEMBLYAI_API_KEY`
+  is present in `secrets.env`; otherwise falls back to Deepgram.
+- New `--backend local` path uses **whisper.cpp** via `whisper-rs`. The
+  ~1.5 GB `ggml-large-v3-turbo.bin` model is downloaded lazily on the
+  first F9 press in local mode, cached at `~/.cache/f9-talk/models/`.
+  Default build is CPU-only; rebuild with `--features cuda` (after
+  `sudo apt install nvidia-cuda-toolkit`) for GPU acceleration.
+- New tray "API Keys…" dialog: paste keys without editing the file by
+  hand; saving rebuilds the active backend in-place.
+- New `--headless` flag: pure CLI mode with no indicator window.
+- Pipeline tracing line per F9 press in `journalctl --user -t f9-talk`:
+  `press_to_release=…  frames=…  first_byte_sent=…  release_to_final=…  transcript=…`.
+
+### Changed
+- **Hotkey listener** rewritten on top of `evdev` (via the
+  `hotkey-listener` crate). Same chord syntax as before
+  (`f9`, `<ctrl>+<alt>+space`, `ctrl+shift+a`); the 50 ms X11 auto-repeat
+  debounce is preserved literally.
+- **Microphone capture** rewritten on top of `cpal` instead of a
+  `parec` subprocess. On stream errors the mic is reopened with
+  exponential backoff (1 s → 30 s cap) — fixes the "PipeWire restart
+  silently kills dictation until the app is restarted" failure mode.
+- **Text injection** rewritten on direct `/dev/uinput` writes instead
+  of `xdotool`. Works on X11 *and* Wayland identically. ASCII printable
+  chars are mapped to scancodes; non-ASCII characters use the IBus
+  Ctrl+Shift+U Unicode dance.
+- **Deepgram WebSocket reconnect** ported from v0.3.1's Python fix.
+- **Indicator animation**: the wave style is preserved (56-point Bézier
+  path, four-layer paint, asymmetric EMA on RMS); the other 5 styles
+  (bars, pulse, dots, ripple, blob) are not ported. The `--style` CLI
+  flag is kept for compatibility but warn-logs and falls through to wave.
+- **Translation**: Lingva (primary) → MyMemory (fallback) ported with
+  the same fall-through semantics.
+
+### Removed
+- Gladia cloud backend (existing `GLADIA_API_KEY` in `secrets.env` is
+  read but ignored).
+- The 5 alternative indicator animation styles.
+- Python source tree (`f9_talk/`), the `pip install` step in postinst,
+  and the `/opt/f9-talk/.venv` runtime.
+
+### New requirements
+- `udev` rule for `/dev/uinput` (`KERNEL=="uinput", MODE="0660", GROUP="input"`)
+  is installed by the package and applied via `udevadm trigger` in postinst.
+- The installing user is auto-added to the `input` group; **you must
+  log out and back in once** for `evdev` hotkey + `uinput` typer access
+  to take effect.
+
+### Migration from 0.3.x
+- The .deb declares `Replaces:` and `Conflicts:` against `f9-talk (<= 0.3.99)`,
+  so `sudo dpkg -i f9-talk_0.4.0_amd64.deb` cleanly removes the Python
+  install before laying down the new binary.
+- `~/.config/F9_talk/secrets.env` is preserved untouched.
+- Autostart entry path is unchanged (`Exec=f9-talk --backend cloud`),
+  so the next login boots straight into the Rust build.
+
+### Rollback
+- `sudo dpkg -i f9-talk_0.3.1_all.deb` (kept on disk in `~/Desktop/F9_talk/`)
+  restores the Python install with no manual fix-up required;
+  `secrets.env` is untouched.
+
+---
+
 ## [0.3.1] — 2026-05-08
 
 ### Fixed

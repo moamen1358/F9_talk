@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# postinst — runs after `dpkg -i f9-talk_*.deb`. Sets up:
+# 1. udev rule for /dev/uinput so the input group can write to it.
+# 2. Icon cache refresh.
+# 3. Best-effort: add the installing user to the `input` group and
+#    print a one-line "log out and back in" reminder.
+#
+# Idempotent: safe to run on upgrade or reinstall.
+set -e
+
+# 1. Reload udev rules (we just wrote /etc/udev/rules.d/99-f9-talk.rules).
+if command -v udevadm &>/dev/null; then
+    udevadm control --reload-rules || true
+    udevadm trigger --type=devices --action=add --subsystem-match=misc --sysname-match=uinput || true
+fi
+
+# 2. Refresh the freedesktop icon cache so our tray + menu icons appear immediately.
+if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor &>/dev/null || true
+fi
+
+# 3. Add the installing user to the `input` group (needed for evdev hotkey + uinput typer).
+TARGET_USER="${SUDO_USER:-}"
+if [[ -n "$TARGET_USER" ]] && ! id -nG "$TARGET_USER" | grep -qw input; then
+    usermod -aG input "$TARGET_USER" || true
+    echo "f9-talk: added $TARGET_USER to the 'input' group."
+    echo "  ➜  log out and back in once for the new group + udev rule to take effect."
+fi
+
+# 4. If upgrading from Python f9-talk (≤0.3.x), the dpkg replaces logic
+#    has already removed /opt/f9-talk + /usr/local/bin/f9-talk. We
+#    silently leave ~/.config/F9_talk/secrets.env untouched.
+echo "f9-talk: installed."
+exit 0
