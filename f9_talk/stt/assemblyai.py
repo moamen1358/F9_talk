@@ -122,12 +122,23 @@ class AssemblyAIStreamingSTT:
         if client is None:
             return
 
+        # AssemblyAI requires each chunk to span 50-1000 ms. Our mic frames
+        # are ~25 ms, so accumulate two frames (~50 ms) before yielding.
+        # 16 kHz mono int16 → 16000 * 2 * 0.05 = 1600 bytes per 50 ms.
+        min_bytes = int(self.sample_rate * 2 * 0.05)
+
         def gen():
+            buf = bytearray()
             while True:
                 frame = self._queue.get()
                 if frame is None:
+                    if buf:
+                        yield bytes(buf)
                     return
-                yield frame
+                buf.extend(frame)
+                if len(buf) >= min_bytes:
+                    yield bytes(buf)
+                    buf = bytearray()
 
         try:
             client.stream(gen())

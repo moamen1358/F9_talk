@@ -4,6 +4,13 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.2.3] — 2026-05-08
+
+### Fixed
+- AssemblyAI: rejected our 25 ms mic frames with `Input Duration Violation: 25.0 ms. Expected between 50 and 1000 ms`. The AssemblyAI backend now buffers incoming audio frames until at least 50 ms (1600 bytes at 16 kHz mono int16) is available before yielding to the SDK. Deepgram/Gladia paths unaffected — they accept smaller chunks
+
+---
+
 ## [0.2.2] — 2026-05-08
 
 ### Fixed
