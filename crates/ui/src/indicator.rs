@@ -8,6 +8,9 @@ use std::time::Instant;
 
 use f9_talk_audio::RmsHandle;
 use parking_lot::Mutex;
+use tracing::warn;
+
+use crate::positioning::Positioner;
 
 /// Indicator runtime state shared with the app loop. The audio callback
 /// thread updates `rms` (sub-µs uncontested mutex). The app loop flips
@@ -36,20 +39,39 @@ impl IndicatorState {
     }
 }
 
+/// Indicator window dimensions. Width chosen so the wave's ~320 px
+/// pill leaves ≥20 px of soft-glow margin on each side.
+pub const INDICATOR_W: i32 = 360;
+pub const INDICATOR_H: i32 = 80;
+
 /// eframe app: owns the smoothed audio level (asymmetric EMA), the
-/// animation clock, and the paint loop.
+/// animation clock, the X11 positioner, and the paint loop.
 pub struct IndicatorApp {
     state: Arc<IndicatorState>,
     smoothed_level: f32,
     anim_t0: Instant,
+    positioner: Option<Positioner>,
+    last_recording: bool,
 }
 
 impl IndicatorApp {
     pub fn new(state: Arc<IndicatorState>) -> Self {
+        let positioner = match Positioner::new() {
+            Ok(p) => Some(p),
+            Err(e) => {
+                warn!(
+                    "could not open X11 connection for smart positioning: {e:?}; \
+                    indicator will stay at the eframe default position"
+                );
+                None
+            }
+        };
         Self {
             state,
             smoothed_level: 0.0,
             anim_t0: Instant::now(),
+            positioner,
+            last_recording: false,
         }
     }
 
@@ -63,6 +85,21 @@ impl IndicatorApp {
             self.smoothed_level = 0.85 * self.smoothed_level + 0.15 * raw;
         }
     }
+
+    fn maybe_reposition(&mut self, ctx: &egui::Context, recording: bool) {
+        // Re-anchor on the rising edge of `recording`. Querying X11 ~5
+        // ms is fine on press; we don't want to redo it every frame.
+        if recording && !self.last_recording {
+            if let Some(positioner) = self.positioner.as_ref() {
+                if let Some((x, y)) = positioner.compute_position(INDICATOR_W, INDICATOR_H) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                        x as f32, y as f32,
+                    )));
+                }
+            }
+        }
+        self.last_recording = recording;
+    }
 }
 
 impl eframe::App for IndicatorApp {
@@ -73,6 +110,8 @@ impl eframe::App for IndicatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let recording = *self.state.recording.lock();
         let status = self.state.status_text.lock().clone();
+
+        self.maybe_reposition(ctx, recording);
 
         if !recording && status.is_none() {
             // Idle — drop to 1 fps so we wake quickly when state flips.

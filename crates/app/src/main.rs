@@ -162,7 +162,7 @@ fn main() -> anyhow::Result<()> {
 
     // Indicator window dimensions: 360 × 80 — wider than the 320 px
     // pill so the wave layers' soft glow doesn't clip at the edges.
-    let viewport = egui::ViewportBuilder::default()
+    let mut viewport = egui::ViewportBuilder::default()
         .with_title("f9-talk")
         .with_app_id("f9-talk")
         .with_inner_size([360.0, 80.0])
@@ -172,6 +172,13 @@ fn main() -> anyhow::Result<()> {
         .with_resizable(false)
         .with_taskbar(false)
         .with_mouse_passthrough(true);
+    // Pre-compute initial position so the first frame doesn't flash at
+    // the eframe default before maybe_reposition runs on the first press.
+    if let Ok(pos) = f9_talk_ui::Positioner::new() {
+        if let Some((x, y)) = pos.compute_position(360, 80) {
+            viewport = viewport.with_position([x as f32, y as f32]);
+        }
+    }
     let native_options = eframe::NativeOptions {
         viewport,
         ..Default::default()
