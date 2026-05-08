@@ -87,6 +87,7 @@ class DictateApp:
         self._record_started_at = 0.0
         self._busy_lock = threading.Lock()
         self._listener: keyboard.Listener | None = None
+        self._release_timer: threading.Timer | None = None
 
     # ---------- hotkey routing ----------
 
@@ -96,6 +97,12 @@ class DictateApp:
     def _on_press(self, key) -> None:
         canon = canonical_key(key)
         self._pressed.add(canon)
+        # If a release timer is pending this press is X11 auto-repeat — cancel the
+        # pending release so the session continues uninterrupted.
+        if self._release_timer is not None:
+            self._release_timer.cancel()
+            self._release_timer = None
+            return
         if self._recording:
             return
         if self.local_stt is not None and self.local_hotkey.issubset(self._pressed):
@@ -110,7 +117,14 @@ class DictateApp:
             return
         active_hk = self._hotkey_for(self._active_backend or "local")
         if not active_hk.issubset(self._pressed):
-            self._end_session()
+            # 50 ms debounce: real releases are followed by silence;
+            # X11 auto-repeat presses arrive within ~5 ms and cancel this timer.
+            self._release_timer = threading.Timer(0.05, self._debounced_end)
+            self._release_timer.start()
+
+    def _debounced_end(self) -> None:
+        self._release_timer = None
+        self._end_session()
 
     # ---------- session lifecycle ----------
 
@@ -216,6 +230,9 @@ class DictateApp:
             log.info("Dictate ready (local only). %s = Whisper.", self.local_hotkey_spec)
 
     def stop(self) -> None:
+        if self._release_timer is not None:
+            self._release_timer.cancel()
+            self._release_timer = None
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
