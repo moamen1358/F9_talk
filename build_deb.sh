@@ -115,7 +115,7 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.10), python3-venv, python3-pip, libportaudio2, libsndfile1
+Depends: python3 (>= 3.10), python3-venv, python3-pip, libportaudio2, libsndfile1, libxcb-cursor0, libxkbcommon-x11-0, libdbus-1-3, xdotool
 Maintainer: Moamen Ghareeb <info@whiteguard.co.uk>
 Homepage: https://github.com/moamen1358/F9_talk
 Description: Hold-to-talk system-wide dictation for Linux
@@ -166,8 +166,9 @@ chmod 755 "$DEB_DIR/DEBIAN/postinst"
 cat > "$DEB_DIR/DEBIAN/prerm" << 'PRERM'
 #!/usr/bin/env bash
 set -e
-echo "f9-talk: removing virtual environment..."
-rm -rf /opt/f9-talk/.venv
+echo "f9-talk: removing installation..."
+rm -rf /opt/f9-talk
+rm -f /usr/local/bin/f9-talk
 PRERM
 chmod 755 "$DEB_DIR/DEBIAN/prerm"
 

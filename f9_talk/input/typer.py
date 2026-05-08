@@ -35,7 +35,7 @@ class Typer:
         if self._tool == "xdotool":
             time.sleep(0.08)  # let the hotkey fully release before typing
             subprocess.run(
-                ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", text],
+                ["xdotool", "type", "--clearmodifiers", "--delay", "0", "--", text],
                 check=False,
             )
         elif self._tool == "wtype":
