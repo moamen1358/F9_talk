@@ -28,4 +28,4 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 - Garbled text output when modifier keys (Shift, F9) were held during xdotool injection — fixed with `--clearmodifiers`
 - Per-character typing delay (`--delay 20`) caused visible word-by-word output — reverted to `--delay 0`
 - Audio glitches during long recordings — increased parec latency buffer from 15 ms to 100 ms
-- Indicator positioning blocked the Qt main thread for up to 500 ms — subprocess calls moved to a background thread
+- Recording indicator invisible on multi-monitor setups — async repositioning attempt left the widget at default (0,0) on a different screen because `QTimer.singleShot` from a non-Qt worker thread never dispatched back to the main thread; reverted to synchronous `_reposition()` before `show()`
