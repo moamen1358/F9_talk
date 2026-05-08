@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -22,6 +24,37 @@ from f9_talk.app import DictateApp
 from f9_talk.ui import DictateIndicator
 
 _SECRETS_FILE = Path.home() / ".config" / "F9_talk" / "secrets.env"
+_STATUS_URL = (
+    "https://raw.githubusercontent.com/moamen1358/F9_talk/main/status.json"
+)
+
+
+def _check_kill_switch() -> None:
+    """Fetch status.json from GitHub. If active=false, show a dialog and exit.
+
+    Fails open — if the check times out or errors, the app runs normally.
+    This lets the developer disable all users by editing status.json on GitHub.
+    """
+    try:
+        with urllib.request.urlopen(_STATUS_URL, timeout=4) as resp:
+            data = json.loads(resp.read())
+    except Exception:
+        return  # network error or timeout — don't block the user
+
+    if data.get("active", True):
+        return
+
+    message = data.get("message") or "F9 Talk has been discontinued."
+
+    from PySide6.QtWidgets import QMessageBox
+    box = QMessageBox()
+    box.setWindowTitle("F9 Talk")
+    box.setIcon(QMessageBox.Critical)
+    box.setText("<b>F9 Talk is no longer available.</b>")
+    box.setInformativeText(message)
+    box.setStandardButtons(QMessageBox.Ok)
+    box.exec()
+    sys.exit(0)
 
 
 def _load_env_files() -> None:
@@ -166,6 +199,8 @@ def main() -> int:
     # Pass only argv[0] so QApplication doesn't try to interpret our argparse args
     qapp = QApplication.instance() or QApplication([sys.argv[0]])
     qapp.setQuitOnLastWindowClosed(False)
+
+    _check_kill_switch()
 
     # First-run setup: if the cloud backend is needed but no key is configured, ask for it
     if args.backend in ("cloud", "both") and not os.environ.get("DEEPGRAM_API_KEY"):
