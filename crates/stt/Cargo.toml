@@ -18,15 +18,17 @@ cpu-only = []
 
 [dependencies]
 f9-talk-core = { path = "../core" }
+f9-talk-audio = { path = "../audio" }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = "0.1"
-# Networking deps gated behind impl modules (added in M2 when each backend is wired).
-# tokio-tungstenite = { workspace = true }
-# url = { workspace = true }
-# reqwest = { workspace = true }
-# whisper-rs links against libclang + CUDA (added when whisper backend lands).
+url = { workspace = true }
+futures-util = "0.3"
+parking_lot = { workspace = true }
+anyhow = { workspace = true }
+# whisper-rs lands when WhisperLocal is wired (links libclang + CUDA).
 # whisper-rs = { version = "0.14", optional = true, features = ["cuda"] }

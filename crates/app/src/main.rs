@@ -1,27 +1,32 @@
 //! `f9-talk` binary entry point.
 //!
-//! M1 wires:
+//! M2 wires:
 //! - clap CLI matching v0.3.x flags verbatim
 //! - tracing-journald subscriber (`SYSLOG_IDENTIFIER=f9-talk`)
 //! - secrets-file loader (env > `~/.config/F9_talk/secrets.env`)
 //! - single-instance lock on the abstract Unix socket
 //!   `\0f9-talk-instance-lock`
-//! - uinput permission preflight
-//! - hotkey listener + cpal mic streamer + headless session loop
+//! - uinput permission preflight (warn-only in M1/M2; tightened with
+//!   the real typer)
+//! - hotkey listener + cpal mic streamer
+//! - **STT cloud backend (AssemblyAI default, Deepgram fallback)**
+//!   with per-press latency tracing
 //! - wake-from-suspend tokio task
 //!
-//! No STT, no UI, no actual typing yet — the goal is the M1 exit
-//! criterion: hold F9 → see frames flow → release → log "would type:
-//! [N frames]".
+//! Typing is still a stub (logs "would type:") — real uinput typer +
+//! udev rule packaging arrive later in M2 once the cloud transcripts
+//! are flowing reliably.
 
 use std::collections::HashMap;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
-use tokio::time::Instant;
+use f9_talk_stt::{BackendEvent, Stt};
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -31,31 +36,29 @@ const INSTANCE_LOCK_NAME: &[u8] = b"\0f9-talk-instance-lock";
 #[derive(Parser, Debug)]
 #[command(name = "f9-talk", version, about = "Hold-to-talk dictation for Linux")]
 struct Cli {
-    /// STT backend selection.
     #[arg(long, value_enum, default_value_t = Backend::Cloud)]
     backend: Backend,
 
-    /// Hotkey for the local Whisper backend (held while speaking).
     #[arg(long, default_value = "f9")]
     local_hotkey: String,
 
-    /// Hotkey for the cloud backend (held while speaking).
     #[arg(long, default_value = "f8")]
     cloud_hotkey: String,
 
-    /// Translate transcripts to this ISO language code before typing.
     #[arg(long)]
     target: Option<String>,
 
-    /// Domain-specific terms to bias STT toward (proper nouns, jargon). Repeatable.
     #[arg(long = "keyword")]
     keywords: Vec<String>,
 
-    /// Indicator animation style. v1.0 only ships `wave`; others fall back to wave.
     #[arg(long, default_value = "wave")]
     style: String,
 
-    /// Verbose (debug-level) logging.
+    /// Force a specific cloud provider (overrides auto-select). Skipped
+    /// when --backend=local.
+    #[arg(long, value_enum)]
+    cloud_provider: Option<CloudProvider>,
+
     #[arg(short, long)]
     verbose: bool,
 }
@@ -67,16 +70,24 @@ enum Backend {
     Both,
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
+enum CloudProvider {
+    Assemblyai,
+    Deepgram,
+}
+
 fn main() -> anyhow::Result<()> {
     init_tracing(parse_verbose());
+
+    // rustls 0.23 needs an explicit CryptoProvider; tokio-tungstenite
+    // doesn't pick one for us. Install ring once before any WS connect.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     let cli = Cli::parse();
     if cli.verbose {
         debug!("CLI: {cli:?}");
     }
 
-    // Single-instance lock — must be the FIRST thing we do so a second
-    // copy never loads CUDA / opens the mic / etc.
     let _lock = match acquire_instance_lock() {
         Ok(lock) => lock,
         Err(_) => {
@@ -121,14 +132,14 @@ fn main() -> anyhow::Result<()> {
         .build()?;
 
     let active_chord = match cli.backend {
-        // In cloud-only mode the local-hotkey arg becomes the cloud hotkey,
-        // matching `app.py:__init__`.
         Backend::Cloud => cli.local_hotkey.clone(),
         Backend::Local => cli.local_hotkey.clone(),
         Backend::Both => cli.local_hotkey.clone(),
     };
 
-    runtime.block_on(async move { run_session_loop(&active_chord).await })
+    let provider = pick_cloud_provider(cli.cloud_provider, &secrets);
+
+    runtime.block_on(async move { run_session_loop(&active_chord, provider, &cli, &secrets).await })
 }
 
 fn parse_verbose() -> bool {
@@ -142,8 +153,6 @@ fn init_tracing(verbose: bool) {
 
     let registry = tracing_subscriber::registry().with(env_filter);
 
-    // tracing-journald sets the SYSLOG_IDENTIFIER from the binary name,
-    // which is `f9-talk` — matching the existing `journalctl --user -t f9-talk`.
     match tracing_journald::layer() {
         Ok(journald) => {
             registry
@@ -152,8 +161,6 @@ fn init_tracing(verbose: bool) {
                 .init();
         }
         Err(e) => {
-            // Falls back to stderr-only logging when journald is unavailable
-            // (e.g. inside a container). Rare but not a hard failure.
             eprintln!("journald layer unavailable ({e}); logging to stderr only");
             registry
                 .with(tracing_subscriber::fmt::layer().with_target(false))
@@ -164,19 +171,12 @@ fn init_tracing(verbose: bool) {
 
 fn acquire_instance_lock() -> anyhow::Result<UnixDatagram> {
     let socket = UnixDatagram::unbound()?;
-    // Linux abstract namespace: leading null byte means the socket is
-    // not on the filesystem; std doesn't expose it directly so we
-    // reach through to libc::bind.
     bind_abstract(&socket, INSTANCE_LOCK_NAME)?;
     Ok(socket)
 }
 
 fn bind_abstract(sock: &UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
-    // SAFETY: we construct a sockaddr_un with a leading NUL and pass
-    // its precise byte length to bind(). This is the documented Linux
-    // abstract-namespace API.
     use std::os::fd::AsRawFd;
-
     if name.len() > 107 {
         anyhow::bail!("abstract socket name too long: {} bytes", name.len());
     }
@@ -197,8 +197,6 @@ fn bind_abstract(sock: &UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
 
 fn load_secrets() -> HashMap<String, String> {
     let mut out = HashMap::new();
-
-    // 1. env vars take priority
     for key in ["DEEPGRAM_API_KEY", "ASSEMBLYAI_API_KEY", "GLADIA_API_KEY"] {
         if let Ok(v) = std::env::var(key) {
             if !v.is_empty() {
@@ -206,8 +204,6 @@ fn load_secrets() -> HashMap<String, String> {
             }
         }
     }
-
-    // 2. ~/.config/F9_talk/secrets.env
     if let Some(path) = secrets_path() {
         if let Ok(text) = std::fs::read_to_string(&path) {
             for line in text.lines() {
@@ -223,7 +219,6 @@ fn load_secrets() -> HashMap<String, String> {
             }
         }
     }
-
     out
 }
 
@@ -232,7 +227,89 @@ fn secrets_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".config/F9_talk/secrets.env"))
 }
 
-async fn run_session_loop(chord: &str) -> anyhow::Result<()> {
+fn pick_cloud_provider(
+    forced: Option<CloudProvider>,
+    secrets: &HashMap<String, String>,
+) -> Option<CloudProvider> {
+    if let Some(p) = forced {
+        return Some(p);
+    }
+    let has_aai = secrets.contains_key("ASSEMBLYAI_API_KEY");
+    let has_dg = secrets.contains_key("DEEPGRAM_API_KEY");
+    if has_aai {
+        Some(CloudProvider::Assemblyai)
+    } else if has_dg {
+        Some(CloudProvider::Deepgram)
+    } else {
+        None
+    }
+}
+
+async fn build_cloud_backend(
+    provider: CloudProvider,
+    secrets: &HashMap<String, String>,
+    keywords: &[String],
+) -> anyhow::Result<Arc<dyn Stt>> {
+    match provider {
+        CloudProvider::Assemblyai => {
+            let key = secrets
+                .get("ASSEMBLYAI_API_KEY")
+                .cloned()
+                .unwrap_or_default();
+            Ok(Arc::new(f9_talk_stt::assemblyai::AssemblyAi::new(
+                key,
+                f9_talk_stt::assemblyai::Config {
+                    keyterms: keywords.to_vec(),
+                },
+            )))
+        }
+        CloudProvider::Deepgram => {
+            let key = secrets.get("DEEPGRAM_API_KEY").cloned().unwrap_or_default();
+            Ok(Arc::new(f9_talk_stt::deepgram::Deepgram::new(
+                key,
+                f9_talk_stt::deepgram::Config {
+                    keywords: keywords.to_vec(),
+                    ..Default::default()
+                },
+            )))
+        }
+    }
+}
+
+async fn run_session_loop(
+    chord: &str,
+    provider: Option<CloudProvider>,
+    cli: &Cli,
+    secrets: &HashMap<String, String>,
+) -> anyhow::Result<()> {
+    let provider = match (cli.backend, provider) {
+        (Backend::Cloud, None) => {
+            eprintln!(
+                "f9-talk: --backend cloud needs ASSEMBLYAI_API_KEY or DEEPGRAM_API_KEY \
+                 set in the environment or in ~/.config/F9_talk/secrets.env"
+            );
+            std::process::exit(2);
+        }
+        (Backend::Cloud, Some(p)) => p,
+        (Backend::Local, _) | (Backend::Both, _) => {
+            eprintln!(
+                "f9-talk: --backend {{local|both}} support lands later in M2 \
+                 (whisper-rs + CUDA model download)."
+            );
+            std::process::exit(2);
+        }
+    };
+
+    let backend = build_cloud_backend(provider, secrets, &cli.keywords).await?;
+    let backend_name = backend.name();
+
+    let (event_tx, mut event_rx) = mpsc::channel::<BackendEvent>(64);
+    backend
+        .start(event_tx)
+        .await
+        .map_err(|e| anyhow::anyhow!("could not start STT backend ({backend_name}): {e}"))?;
+    info!("STT backend ready: {backend_name}");
+
     let mut hotkey_rx = match f9_talk_input::spawn_hotkey(chord) {
         Ok(rx) => rx,
         Err(e) => {
@@ -250,50 +327,91 @@ async fn run_session_loop(chord: &str) -> anyhow::Result<()> {
         f9_talk_audio::spawn().map_err(|e| anyhow::anyhow!("could not start mic streamer: {e}"))?;
 
     info!(
-        "f9-talk M1 ready. hold {} to record (Ctrl-C to quit)",
+        "f9-talk M2 ready. hold {} to dictate (cloud={backend_name}, Ctrl-C to quit)",
         chord
     );
     let _typer = Typer::new()?;
 
     spawn_wakeup_watcher();
 
-    let mut session_frames: u64 = 0;
-    let mut recording = false;
+    let mut session: Option<SessionInProgress> = None;
 
     loop {
         tokio::select! {
             evt = hotkey_rx.recv() => {
                 match evt {
                     Some(HotkeyEvent::Pressed) => {
-                        recording = true;
-                        session_frames = 0;
+                        let press_at = Instant::now();
+                        backend.begin_session().await;
                         info!("🎙  recording…");
+                        session = Some(SessionInProgress {
+                            press_at,
+                            first_byte_sent: None,
+                            frames_sent: 0,
+                        });
                     }
                     Some(HotkeyEvent::Released) => {
-                        recording = false;
-                        info!("✏  release: would type [N frames] = {session_frames}");
+                        let Some(sess) = session.take() else { continue; };
+                        let release_at = Instant::now();
+                        let result = backend.end_session(Duration::from_millis(350)).await;
+                        let final_at = Instant::now();
+                        info!(
+                            target: "f9_talk::press",
+                            "press_to_release={:.0?} frames={} first_byte_sent={:?} release_to_final={:.0?} transcript={:?}",
+                            release_at.duration_since(sess.press_at),
+                            sess.frames_sent,
+                            sess.first_byte_sent.map(|t| t.duration_since(sess.press_at)),
+                            final_at.duration_since(release_at),
+                            result.transcript,
+                        );
+                        if result.transcript.is_empty() {
+                            info!("(no speech detected)");
+                        } else {
+                            info!(target: "f9_talk::typer", "would type: {:?}", result.transcript);
+                        }
                     }
                     None => {
                         warn!("hotkey channel closed; exiting");
+                        backend.stop().await;
                         return Ok(());
                     }
                 }
             }
             frame = frame_rx.recv() => {
-                let Some(_f) = frame else {
+                let Some(f) = frame else {
                     warn!("mic channel closed; exiting");
+                    backend.stop().await;
                     return Ok(());
                 };
-                if recording {
-                    session_frames += 1;
+                if let Some(sess) = session.as_mut() {
+                    if sess.first_byte_sent.is_none() {
+                        sess.first_byte_sent = Some(Instant::now());
+                    }
+                    sess.frames_sent += 1;
+                    backend.send_audio(&f.bytes).await;
+                }
+            }
+            evt = event_rx.recv() => {
+                match evt {
+                    Some(BackendEvent::SocketLost(msg)) => warn!("STT socket lost: {msg}"),
+                    Some(BackendEvent::SocketBack) => info!("STT socket reconnected"),
+                    Some(BackendEvent::Error(e)) => warn!("STT error: {e}"),
+                    None => {}
                 }
             }
             _ = tokio::signal::ctrl_c() => {
                 info!("Ctrl-C received; shutting down");
+                backend.stop().await;
                 return Ok(());
             }
         }
     }
+}
+
+struct SessionInProgress {
+    press_at: Instant,
+    first_byte_sent: Option<Instant>,
+    frames_sent: u32,
 }
 
 fn spawn_wakeup_watcher() {
@@ -311,14 +429,10 @@ fn spawn_wakeup_watcher() {
                     Long-lived connections should reconnect.",
                     drift, threshold
                 );
-                // M2 will broadcast this to STT clients via a Notify;
-                // for M1 we just log so the test "leave running, suspend,
-                // resume" produces visible evidence.
             }
             last = now;
         }
     });
 }
 
-// Required for the libc::bind call above.
 extern crate libc;
