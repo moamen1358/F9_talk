@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    8 vertical pill-bars forming an audio waveform, centered at y=32.
+    Bar width=5, gap=3, total span=61px, 1.5px margin each side.
+    Heights match the reference icon (leftmost short → tall center → descending right).
+  -->
+  <rect x="1.5"  y="25"   width="5" height="14" rx="2.5" fill="#FF2233"/>
+  <rect x="9.5"  y="18"   width="5" height="28" rx="2.5" fill="#FF2233"/>
+  <rect x="17.5" y="10"   width="5" height="44" rx="2.5" fill="#FF2233"/>
+  <rect x="25.5" y="3"    width="5" height="58" rx="2.5" fill="#FF2233"/>
+  <rect x="33.5" y="4"    width="5" height="56" rx="2.5" fill="#FF2233"/>
+  <rect x="41.5" y="10"   width="5" height="44" rx="2.5" fill="#FF2233"/>
+  <rect x="49.5" y="15.5" width="5" height="33" rx="2.5" fill="#FF2233"/>
+  <rect x="57.5" y="23"   width="5" height="18" rx="2.5" fill="#FF2233"/>
+</svg>
