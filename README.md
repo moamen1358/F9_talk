@@ -5,9 +5,9 @@
 System-wide hold-to-talk dictation for Linux. Works in any focused application — browser, editor, Slack, terminal — with no clipboard side-effects.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/moamen1358/f9-talk?label=release)](https://github.com/moamen1358/f9-talk/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/moamen1358/f9-talk/ci.yml?label=CI)](https://github.com/moamen1358/f9-talk/actions/workflows/ci.yml)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20X11-lightgrey)](https://github.com/moamen1358/f9-talk)
+[![Release](https://img.shields.io/github/v/release/moamen1358/F9_talk?label=release)](https://github.com/moamen1358/F9_talk/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/moamen1358/F9_talk/ci.yml?label=CI)](https://github.com/moamen1358/F9_talk/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20X11-lightgrey)](https://github.com/moamen1358/F9_talk)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 
 ```
@@ -19,7 +19,7 @@ F9 ↑  →  ⌨    Text appears at cursor   (~250 ms with Deepgram Nova-3)
 
 ## Install
 
-**[→ Download the latest .deb release](https://github.com/moamen1358/f9-talk/releases/latest)**
+**[→ Download the latest .deb release](https://github.com/moamen1358/F9_talk/releases/latest)**
 
 ```bash
 sudo dpkg -i f9-talk_*.deb
@@ -124,7 +124,7 @@ Exec=f9-talk --target ar --style pulse
 ## Install from source
 
 ```bash
-git clone https://github.com/moamen1358/f9-talk.git
+git clone https://github.com/moamen1358/F9_talk.git
 cd f9-talk
 
 python3 -m venv .venv && .venv/bin/pip install -e .
