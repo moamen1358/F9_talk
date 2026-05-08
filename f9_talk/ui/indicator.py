@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 import shutil
 import subprocess
-import threading
 import time
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal, Slot
@@ -153,10 +152,10 @@ class DictateIndicator(QWidget):
         self._anim_t = 0.0
         self._audio_level = 0.0
         self._audio_level_smoothed = 0.0
+        self._reposition()
         self.show()
         self.raise_()
         self.timer.start(16)  # ~60 fps
-        threading.Thread(target=self._reposition_async, daemon=True, name="indicator-pos").start()
 
     @Slot()
     def _on_hide(self) -> None:
@@ -167,13 +166,13 @@ class DictateIndicator(QWidget):
     def _on_status(self, text: str) -> None:
         self._mode = "status"
         self._status_text = text
+        self._reposition()
         if not self.isVisible():
             self.show()
             self.raise_()
         if not self.timer.isActive():
             self.timer.start(16)
         self.update()
-        threading.Thread(target=self._reposition_async, daemon=True, name="indicator-pos").start()
 
     @Slot(float)
     def _on_audio_level(self, level: float) -> None:
@@ -414,34 +413,26 @@ class DictateIndicator(QWidget):
 
     # ---------- positioning ----------
 
-    def _reposition_async(self) -> None:
-        """Fetch window/cursor position off the main thread, then apply on it."""
+    def _reposition(self) -> None:
         win = _focused_window_geometry()
-        pos = _cursor_pos() if win is None else None
-        QTimer.singleShot(0, lambda: self._apply_position(win, pos))
-
-    def _apply_position(self, win: tuple | None, pos: tuple | None) -> None:
-        """Compute final screen-clamped position and move the widget (main thread only)."""
         if win is not None:
             wx, wy, ww, wh = win
             x = wx + (ww - self.width()) // 2
             y = wy + wh - self.height() - 24
-            screen_obj = (
-                QGuiApplication.screenAt(QPoint(wx + ww // 2, wy + wh // 2))
+            screen_obj = QGuiApplication.screenAt(QPoint(wx + ww // 2, wy + wh // 2)) \
                 or QGuiApplication.primaryScreen()
-            )
-        elif pos is not None:
+        else:
+            pos = _cursor_pos()
+            if pos is None:
+                screen = QGuiApplication.primaryScreen().availableGeometry()
+                x = screen.x() + (screen.width() - self.width()) // 2
+                y = screen.y() + screen.height() - self.height() - 120
+                self.move(x, y)
+                return
             cx, cy = pos
             screen_obj = QGuiApplication.screenAt(QPoint(cx, cy)) or QGuiApplication.primaryScreen()
             x = cx - self.width() // 2
             y = cy + 28
-        else:
-            screen = QGuiApplication.primaryScreen().availableGeometry()
-            self.move(
-                screen.x() + (screen.width() - self.width()) // 2,
-                screen.y() + screen.height() - self.height() - 120,
-            )
-            return
         screen = screen_obj.availableGeometry()
         x = max(screen.x() + 8, min(x, screen.x() + screen.width() - self.width() - 8))
         y = max(screen.y() + 8, min(y, screen.y() + screen.height() - self.height() - 8))
