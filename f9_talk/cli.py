@@ -186,6 +186,9 @@ def main() -> int:
     # Pass only argv[0] so QApplication doesn't try to interpret our argparse args
     qapp = QApplication.instance() or QApplication([sys.argv[0]])
     qapp.setQuitOnLastWindowClosed(False)
+    qapp.setApplicationName("F9 Talk")
+    qapp.setApplicationDisplayName("F9 Talk")
+    qapp.setDesktopFileName("f9-talk")
 
     # First-run setup: if the cloud backend is needed but no key is configured, ask for it
     if args.backend in ("cloud", "both") and not os.environ.get("DEEPGRAM_API_KEY"):

@@ -40,7 +40,12 @@ class DictateTray(QSystemTrayIcon):
     def __init__(self, qapp: QApplication) -> None:
         super().__init__(qapp)
         self._paused = False
-        self._active_icon = QIcon(str(_ICON_PATH))
+        # Prefer the system theme icon (installed by the .deb at
+        # /usr/share/icons/hicolor/.../f9-talk.png) so GNOME's AppIndicator
+        # extension can resolve it via the freedesktop icon-theme system.
+        # Fall back to the bundled PNG when the theme entry is missing.
+        theme_icon = QIcon.fromTheme("f9-talk")
+        self._active_icon = theme_icon if not theme_icon.isNull() else QIcon(str(_ICON_PATH))
         self._paused_icon = _make_paused_icon(self._active_icon)
 
         self._toggle_action = QAction("Pause listening", self)

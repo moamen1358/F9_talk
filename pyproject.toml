@@ -59,6 +59,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["f9_talk*"]
 
+[tool.setuptools.package-data]
+f9_talk = ["assets/*.png", "assets/*.svg"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
