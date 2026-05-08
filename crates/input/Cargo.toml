@@ -19,8 +19,6 @@ f9-talk-core = { path = "../core" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-# evdev / hotkey-listener added when M1 hotkey impl begins. They link
-# against libevdev at build time but it's already on Pop!_OS 22.04;
-# keeping out of the empty-stub manifest to keep the first compile clean.
-# hotkey-listener = { workspace = true }
-# evdev = { workspace = true }
+hotkey-listener = { workspace = true }
+evdev = { workspace = true }
+anyhow = { workspace = true }

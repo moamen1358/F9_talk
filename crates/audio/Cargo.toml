@@ -16,5 +16,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
-# cpal is added when the mic streamer is implemented (needs `libasound2-dev`).
-# cpal = { workspace = true }
+anyhow = { workspace = true }
+cpal = { workspace = true }

@@ -43,9 +43,11 @@ tokio-tungstenite = { version = "0.27", default-features = false, features = ["r
 url = "2"
 
 # Audio + input
-cpal = "0.16"
-hotkey-listener = "0.1"
+cpal = "0.17"
+hotkey-listener = "0.3"
 evdev = "0.13"
+crossbeam-channel = "0.5"
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # STT (local)
 # whisper-rs is gated behind the `cuda` feature in the stt crate.
