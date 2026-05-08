@@ -52,7 +52,7 @@ f9-talk lives in your system tray (top-right of the panel on most Linux desktops
 |---|---|
 | **Left-click** | Pause / resume the F9 hotkey (icon dims when paused) |
 | **Right-click → Pause / Resume listening** | Same as left-click |
-| **Right-click → Cloud provider ▶** | Switch live between Deepgram, AssemblyAI, Gladia |
+| **Right-click → Cloud provider ▶** | Switch live between Deepgram and Gladia |
 | **Right-click → API Keys…** | Edit any provider's key — no file editing |
 | **Right-click → Quit** | Exit |
 
