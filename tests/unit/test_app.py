@@ -8,7 +8,6 @@ def _build_app():
     """Build a DictateApp with all heavy collaborators mocked."""
     with (
         patch("f9_talk.app.DeepgramStreamingSTT"),
-        patch("f9_talk.app.AssemblyAIStreamingSTT"),
         patch("f9_talk.app.GladiaStreamingSTT"),
         patch("f9_talk.app.LocalWhisperSTT"),
         patch("f9_talk.app.MicStreamer"),
@@ -55,13 +54,9 @@ def test_unpaused_press_starts_session():
 def test_set_cloud_provider_switches_active_backend():
     app = _build_app()
     app.cloud_stt_deepgram = MagicMock(name="dg")
-    app.cloud_stt_assemblyai = MagicMock(name="aa")
     app.cloud_stt_gladia = MagicMock(name="gl")
 
     assert app.cloud_stt is app.cloud_stt_deepgram
-
-    app.set_cloud_provider("assemblyai")
-    assert app.cloud_stt is app.cloud_stt_assemblyai
 
     app.set_cloud_provider("gladia")
     assert app.cloud_stt is app.cloud_stt_gladia
@@ -76,11 +71,11 @@ def test_set_cloud_provider_rejects_unknown():
     assert app._cloud_provider == "deepgram"
 
 
-def test_set_cloud_provider_falls_back_when_assemblyai_missing():
+def test_set_cloud_provider_falls_back_when_gladia_missing():
     app = _build_app()
-    app.cloud_stt_assemblyai = None
+    app.cloud_stt_gladia = None
 
-    app.set_cloud_provider("assemblyai")
+    app.set_cloud_provider("gladia")
 
     assert app._cloud_provider == "deepgram"
 
@@ -89,7 +84,6 @@ def test_on_error_callback_fires_when_backend_reports_error():
     received: list[str] = []
     with (
         patch("f9_talk.app.DeepgramStreamingSTT"),
-        patch("f9_talk.app.AssemblyAIStreamingSTT"),
         patch("f9_talk.app.GladiaStreamingSTT"),
         patch("f9_talk.app.LocalWhisperSTT"),
         patch("f9_talk.app.MicStreamer"),
@@ -116,20 +110,16 @@ def test_reload_keys_updates_backend_attributes(monkeypatch):
     app = _build_app()
     app.cloud_stt_deepgram = MagicMock(api_key="old-dg")
     app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
-    app.cloud_stt_assemblyai = MagicMock(api_key="old-aa")
-    app.cloud_stt_assemblyai.__class__._ENV_KEY = "ASSEMBLYAI_API_KEY"
     app.cloud_stt_gladia = MagicMock(api_key="old-gl")
     app.cloud_stt_gladia.__class__._ENV_KEY = "GLADIA_API_KEY"
 
     monkeypatch.setenv("DEEPGRAM_API_KEY", "new-dg")
-    monkeypatch.setenv("ASSEMBLYAI_API_KEY", "new-aa")
     monkeypatch.setenv("GLADIA_API_KEY", "new-gl")
 
     app._recording = False
     app.reload_keys()
 
     assert app.cloud_stt_deepgram.api_key == "new-dg"
-    assert app.cloud_stt_assemblyai.api_key == "new-aa"
     assert app.cloud_stt_gladia.api_key == "new-gl"
 
 
@@ -137,7 +127,6 @@ def test_reload_keys_reconnects_deepgram_when_idle(monkeypatch):
     app = _build_app()
     app.cloud_stt_deepgram = MagicMock(api_key="old")
     app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
-    app.cloud_stt_assemblyai = None
     app.cloud_stt_gladia = None
     monkeypatch.setenv("DEEPGRAM_API_KEY", "new")
 
@@ -152,7 +141,6 @@ def test_reload_keys_skips_deepgram_reconnect_mid_session(monkeypatch):
     app = _build_app()
     app.cloud_stt_deepgram = MagicMock(api_key="old")
     app.cloud_stt_deepgram.__class__._ENV_KEY = "DEEPGRAM_API_KEY"
-    app.cloud_stt_assemblyai = None
     app.cloud_stt_gladia = None
     monkeypatch.setenv("DEEPGRAM_API_KEY", "new")
 
@@ -167,7 +155,6 @@ def test_on_success_callback_fires_when_text_typed():
     received: list[bool] = []
     with (
         patch("f9_talk.app.DeepgramStreamingSTT"),
-        patch("f9_talk.app.AssemblyAIStreamingSTT"),
         patch("f9_talk.app.GladiaStreamingSTT"),
         patch("f9_talk.app.LocalWhisperSTT"),
         patch("f9_talk.app.MicStreamer"),

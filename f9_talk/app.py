@@ -16,7 +16,6 @@ from pynput import keyboard
 from f9_talk.audio import MicStreamer
 from f9_talk.input import Typer, canonical_key, parse_hotkey
 from f9_talk.stt import (
-    AssemblyAIStreamingSTT,
     DeepgramStreamingSTT,
     GladiaStreamingSTT,
     LocalWhisperSTT,
@@ -86,12 +85,6 @@ class DictateApp:
 
         if backend in ("both", "cloud"):
             self.cloud_stt_deepgram = DeepgramStreamingSTT(language="en", keywords=keywords)
-            self.cloud_stt_assemblyai: AssemblyAIStreamingSTT | None = None
-            if AssemblyAIStreamingSTT is not None:
-                try:
-                    self.cloud_stt_assemblyai = AssemblyAIStreamingSTT()
-                except RuntimeError as e:
-                    log.warning("AssemblyAI backend disabled: %s", e)
             self.cloud_stt_gladia: GladiaStreamingSTT | None = None
             if GladiaStreamingSTT is not None:
                 try:
@@ -100,7 +93,6 @@ class DictateApp:
                     log.warning("Gladia backend disabled: %s", e)
         else:
             self.cloud_stt_deepgram = None
-            self.cloud_stt_assemblyai = None
             self.cloud_stt_gladia = None
         self._cloud_provider = "deepgram"
 
@@ -122,8 +114,6 @@ class DictateApp:
     @property
     def cloud_stt(self):
         """Active cloud backend, dispatched by current provider selection."""
-        if self._cloud_provider == "assemblyai" and self.cloud_stt_assemblyai is not None:
-            return self.cloud_stt_assemblyai
         if self._cloud_provider == "gladia" and self.cloud_stt_gladia is not None:
             return self.cloud_stt_gladia
         return self.cloud_stt_deepgram
@@ -133,7 +123,6 @@ class DictateApp:
         import os as _os
         for backend in (
             self.cloud_stt_deepgram,
-            self.cloud_stt_assemblyai,
             self.cloud_stt_gladia,
         ):
             if backend is None:
@@ -153,11 +142,8 @@ class DictateApp:
 
     def set_cloud_provider(self, name: str) -> None:
         """Switch active cloud backend. Takes effect on the next session."""
-        if name not in ("deepgram", "assemblyai", "gladia"):
+        if name not in ("deepgram", "gladia"):
             log.warning("Unknown cloud provider %r, ignored", name)
-            return
-        if name == "assemblyai" and self.cloud_stt_assemblyai is None:
-            log.warning("AssemblyAI backend unavailable; staying on deepgram")
             return
         if name == "gladia" and self.cloud_stt_gladia is None:
             log.warning("Gladia backend unavailable; staying on deepgram")
@@ -299,12 +285,10 @@ class DictateApp:
 
     def start(self) -> None:
         # Start every cloud backend so switching providers later doesn't pay
-        # connection-open cost. Deepgram opens a persistent WS; AssemblyAI is
+        # connection-open cost. Deepgram opens a persistent WS; Gladia is
         # per-session so its start() is a no-op.
         if self.cloud_stt_deepgram is not None:
             self.cloud_stt_deepgram.start()
-        if self.cloud_stt_assemblyai is not None:
-            self.cloud_stt_assemblyai.start()
         if self.cloud_stt_gladia is not None:
             self.cloud_stt_gladia.start()
         if self.local_stt is not None:
@@ -333,8 +317,6 @@ class DictateApp:
         self.mic.stop()
         if self.cloud_stt_deepgram is not None:
             self.cloud_stt_deepgram.stop()
-        if self.cloud_stt_assemblyai is not None:
-            self.cloud_stt_assemblyai.stop()
         if self.cloud_stt_gladia is not None:
             self.cloud_stt_gladia.stop()
         if self.local_stt is not None:

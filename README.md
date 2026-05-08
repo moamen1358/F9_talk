@@ -62,18 +62,16 @@ A red icon + desktop notification appears if a session fails (bad API key, netwo
 
 ## Cloud providers
 
-f9-talk supports three streaming STT providers; switch any time from the tray menu.
+f9-talk supports two streaming STT providers; switch any time from the tray menu.
 
 | Provider | Default model | Latency (warm) | Notes |
 |---|---|---|---|
 | **Deepgram** *(default)* | `nova-3` | ~250 ms | Persistent WebSocket — fastest for hold-to-talk |
-| **AssemblyAI** | Universal | ~300 ms | Slightly lower WER, per-session connection |
 | **Gladia** | v2 live | ~400 ms | Native multilingual code-switching |
 
-Add the keys you have via the **API Keys…** dialog — each provider has a free signup tier:
+Add the keys you have via the **API Keys…** dialog — both have free signup tiers:
 
 - Deepgram: [console.deepgram.com](https://console.deepgram.com/signup) — $200 free credit
-- AssemblyAI: [assemblyai.com](https://www.assemblyai.com/) — $50 free credit
 - Gladia: [app.gladia.io](https://app.gladia.io/) — free tier
 
 Providers without a key simply appear greyed out in the menu.
@@ -83,7 +81,7 @@ Providers without a key simply appear greyed out in the menu.
 ## Features
 
 - **Any application** — browser, terminal, IDE, Slack, anything with a text field
-- **Three cloud providers** with live tray switching
+- **Two cloud providers** with live tray switching (Deepgram, Gladia)
 - **Local offline backend** via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (NVIDIA GPU)
 - **Real-time translation** — speak English, type Arabic (or other languages)
 - **Audio-reactive indicator** — six animation styles: `wave` `bars` `pulse` `dots` `ripple` `blob`
@@ -165,7 +163,7 @@ To rebuild the `.deb` locally: `bash build_deb.sh && sudo dpkg -i f9-talk_*.deb`
 | Linux with X11 | Wayland not yet supported |
 | Python 3.10+ | |
 | PulseAudio or PipeWire | For microphone capture via `parec` |
-| At least one cloud key | Deepgram / AssemblyAI / Gladia — all have free tiers |
+| At least one cloud key | Deepgram or Gladia — both have free tiers |
 | NVIDIA GPU *(optional)* | Local Whisper backend only |
 
 ---

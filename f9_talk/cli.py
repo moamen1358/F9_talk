@@ -25,9 +25,8 @@ from f9_talk.ui import APIKeysDialog, DictateIndicator, DictateTray
 _SECRETS_FILE = Path.home() / ".config" / "F9_talk" / "secrets.env"
 
 _PROVIDER_ENV = {
-    "deepgram":   "DEEPGRAM_API_KEY",
-    "assemblyai": "ASSEMBLYAI_API_KEY",
-    "gladia":     "GLADIA_API_KEY",
+    "deepgram": "DEEPGRAM_API_KEY",
+    "gladia":   "GLADIA_API_KEY",
 }
 
 
@@ -281,7 +280,6 @@ def main() -> int:
     if QSystemTrayIcon.isSystemTrayAvailable():
         tray = DictateTray(
             qapp,
-            assemblyai_available=dictate.cloud_stt_assemblyai is not None,
             gladia_available=dictate.cloud_stt_gladia is not None,
         )
 

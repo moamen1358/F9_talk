@@ -4,6 +4,24 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.3.0] — 2026-05-08
+
+### Removed
+- **BREAKING**: AssemblyAI cloud backend removed entirely. Universal Streaming v3's end-of-turn detection requires sustained silence after speech, but our hold-to-talk sessions close as soon as F9 is released. Multiple workarounds (`speech_model="universal-streaming-english"`, `format_turns=True`, partial-transcript fallback, lower `min_end_of_turn_silence_when_confident`) didn't produce reliable results for sub-2-second holds. Removed rather than ship a flaky provider
+- `assemblyai` Python dependency dropped from `pyproject.toml`
+- `ASSEMBLYAI_API_KEY` no longer read or honored
+- AssemblyAI option removed from the tray's **Cloud provider** submenu
+- AssemblyAI field removed from the **API Keys…** dialog (two fields now: Deepgram + Gladia)
+
+### Migration
+- If you had `ASSEMBLYAI_API_KEY` in `~/.config/F9_talk/secrets.env`, it's safe to delete that line — the app ignores it
+- Deepgram remains the default and recommended backend; Gladia stays as the alternative
+
+### Added
+- `websockets>=12` is now an explicit dependency (was previously transitive)
+
+---
+
 ## [0.2.3] — 2026-05-08
 
 ### Fixed

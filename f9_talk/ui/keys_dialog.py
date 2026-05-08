@@ -14,22 +14,20 @@ from PySide6.QtWidgets import (
 
 
 class APIKeysDialog(QDialog):
-    """Three-field dialog for editing Deepgram / AssemblyAI / Gladia keys.
+    """Two-field dialog for editing Deepgram / Gladia API keys.
 
     Pure UI: takes a ``current`` dict on construction, exposes the user's
     edits via :meth:`edited_keys`. The caller persists them.
     """
 
-    PROVIDERS = ("deepgram", "assemblyai", "gladia")
+    PROVIDERS = ("deepgram", "gladia")
     LABELS = {
-        "deepgram":   "Deepgram",
-        "assemblyai": "AssemblyAI",
-        "gladia":     "Gladia",
+        "deepgram": "Deepgram",
+        "gladia":   "Gladia",
     }
     PLACEHOLDERS = {
-        "deepgram":   "Sign up free at console.deepgram.com",
-        "assemblyai": "Sign up at assemblyai.com",
-        "gladia":     "Sign up at app.gladia.io",
+        "deepgram": "Sign up free at console.deepgram.com",
+        "gladia":   "Sign up at app.gladia.io",
     }
 
     def __init__(self, current: dict[str, str] | None = None) -> None:

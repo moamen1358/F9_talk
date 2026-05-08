@@ -10,16 +10,14 @@ from f9_talk.ui.keys_dialog import APIKeysDialog
 @pytest.fixture
 def current():
     return {
-        "deepgram":   "dg-existing",
-        "assemblyai": "aa-existing",
-        "gladia":     "gl-existing",
+        "deepgram": "dg-existing",
+        "gladia":   "gl-existing",
     }
 
 
 def test_populates_fields_from_current(qapp, current):
     dlg = APIKeysDialog(current)
     assert dlg._fields["deepgram"].text() == "dg-existing"
-    assert dlg._fields["assemblyai"].text() == "aa-existing"
     assert dlg._fields["gladia"].text() == "gl-existing"
 
 
@@ -33,23 +31,22 @@ def test_show_button_toggles_one_field_only(qapp, current):
     dlg = APIKeysDialog(current)
     dlg._show_buttons["deepgram"].setChecked(True)
     assert dlg._fields["deepgram"].echoMode() == QLineEdit.Normal
-    assert dlg._fields["assemblyai"].echoMode() == QLineEdit.Password
     assert dlg._fields["gladia"].echoMode() == QLineEdit.Password
 
 
 def test_edited_keys_returns_only_changed(qapp, current):
     dlg = APIKeysDialog(current)
-    dlg._fields["assemblyai"].setText("aa-NEW")
+    dlg._fields["gladia"].setText("gl-NEW")
     edits = dlg.edited_keys()
-    assert edits == {"assemblyai": "aa-NEW"}
+    assert edits == {"gladia": "gl-NEW"}
 
 
 def test_edited_keys_skips_empty_fields(qapp, current):
     dlg = APIKeysDialog(current)
     dlg._fields["deepgram"].setText("")  # empty = keep existing
-    dlg._fields["assemblyai"].setText("aa-NEW")
+    dlg._fields["gladia"].setText("gl-NEW")
     edits = dlg.edited_keys()
-    assert edits == {"assemblyai": "aa-NEW"}
+    assert edits == {"gladia": "gl-NEW"}
     assert "deepgram" not in edits
 
 

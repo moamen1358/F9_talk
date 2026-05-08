@@ -11,15 +11,13 @@ def test_load_returns_three_managed_keys(tmp_path: Path):
     p.write_text(
         "# comment\n"
         "DEEPGRAM_API_KEY=dg-key\n"
-        "ASSEMBLYAI_API_KEY=aa-key\n"
         "GLADIA_API_KEY=gl-key\n"
         "MYMEMORY_EMAIL=user@example.com\n"
     )
     out = _load_secrets(p)
     assert out == {
-        "deepgram":   "dg-key",
-        "assemblyai": "aa-key",
-        "gladia":     "gl-key",
+        "deepgram": "dg-key",
+        "gladia":   "gl-key",
     }
 
 
@@ -86,9 +84,8 @@ def test_save_creates_file_with_correct_permissions(tmp_path: Path):
 
 def test_save_then_load_roundtrip(tmp_path: Path):
     p = tmp_path / "secrets.env"
-    _save_secrets({"deepgram": "a", "assemblyai": "b", "gladia": "c"}, p)
+    _save_secrets({"deepgram": "a", "gladia": "c"}, p)
     assert _load_secrets(p) == {
         "deepgram": "a",
-        "assemblyai": "b",
         "gladia": "c",
     }
