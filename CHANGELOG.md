@@ -4,7 +4,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
-## [Unreleased] — Deepgram-only
+## [0.5.0] — 2026-05-09 — Deepgram-only
 
 ### Removed
 - **BREAKING**: AssemblyAI cloud backend removed (again — see 0.3.0). The
