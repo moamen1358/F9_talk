@@ -5,14 +5,39 @@
 System-wide hold-to-talk dictation for Linux. Works in any focused application — browser, editor, Slack, terminal — with no clipboard side-effects.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/moamen1358/F9_talk?label=release)](https://github.com/moamen1358/F9_talk/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20X11-lightgrey)](https://github.com/moamen1358/F9_talk)
+[![Release](https://img.shields.io/github/v/release/moamen1358/f9-talk?label=release)](https://github.com/moamen1358/f9-talk/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/moamen1358/f9-talk/ci.yml?label=CI)](https://github.com/moamen1358/f9-talk/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20X11-lightgrey)](https://github.com/moamen1358/f9-talk)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 
 ```
 F9 ↓  →  🎙  Listening...
 F9 ↑  →  ⌨   Text appears at cursor   (~300 ms)
 ```
+
+---
+
+## Download
+
+**[→ Latest release: v0.1.0](https://github.com/moamen1358/f9-talk/releases/latest)**
+
+```bash
+# 1. Download the .deb from the link above, then install:
+sudo dpkg -i f9-talk_*.deb
+sudo apt-get install -f        # fixes any missing system dependencies
+
+# 2. Add your free Deepgram API key  →  https://console.deepgram.com/signup
+nano ~/.config/F9_talk/secrets.env
+# paste:  DEEPGRAM_API_KEY=your_key_here
+```
+
+f9-talk starts automatically on your next login. To start immediately:
+
+```bash
+f9-talk --backend cloud
+```
+
+> To reinstall or upgrade: download the new `.deb` and run the same `sudo dpkg -i` command — it replaces the old version cleanly.
 
 ---
 
@@ -34,7 +59,7 @@ F9 ↑  →  ⌨   Text appears at cursor   (~300 ms)
 
 ### Option 1 — Debian package (recommended)
 
-Download the latest `.deb` from the [Releases page](https://github.com/moamen1358/F9_talk/releases/latest) and install:
+Download the latest `.deb` from the [Releases page](https://github.com/moamen1358/f9-talk/releases/latest) and install:
 
 ```bash
 sudo dpkg -i f9-talk_*.deb
@@ -59,8 +84,8 @@ f9-talk --backend cloud
 ### Option 2 — From source
 
 ```bash
-git clone https://github.com/moamen1358/F9_talk.git
-cd F9_talk
+git clone https://github.com/moamen1358/f9-talk.git
+cd f9-talk
 
 python3 -m venv .venv && .venv/bin/pip install -e .
 sudo apt install pulseaudio-utils xdotool libxcb-cursor0
