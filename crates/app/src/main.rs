@@ -1,21 +1,13 @@
 //! `f9-talk` binary entry point.
 //!
-//! M2 wires:
-//! - clap CLI matching v0.3.x flags verbatim
-//! - tracing-journald subscriber (`SYSLOG_IDENTIFIER=f9-talk`)
-//! - secrets-file loader (env > `~/.config/F9_talk/secrets.env`)
-//! - single-instance lock on the abstract Unix socket
-//!   `\0f9-talk-instance-lock`
-//! - uinput permission preflight (warn-only in M1/M2; tightened with
-//!   the real typer)
-//! - hotkey listener + cpal mic streamer
-//! - **STT cloud backend (AssemblyAI default, Deepgram fallback)**
-//!   with per-press latency tracing
-//! - wake-from-suspend tokio task
-//!
-//! Typing is still a stub (logs "would type:") — real uinput typer +
-//! udev rule packaging arrive later in M2 once the cloud transcripts
-//! are flowing reliably.
+//! Threading model (M3):
+//! - **Main thread**: clap → instance lock → secrets → spawn tokio
+//!   runtime → spawn mic + session loop on it → block in
+//!   `eframe::run_native` driving the egui indicator.
+//! - **Tokio runtime worker thread(s)**: STT WS clients, hotkey
+//!   listener, mic frame router, session loop, wake-from-suspend.
+//! - **cpal callback thread**: real-time, owned by cpal; pushes 25 ms
+//!   frames + RMS into the shared `IndicatorState`.
 
 use std::collections::HashMap;
 use std::os::unix::net::UnixDatagram;
@@ -26,6 +18,7 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
 use f9_talk_stt::{BackendEvent, Stt};
+use f9_talk_ui::{IndicatorApp, IndicatorState};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -33,7 +26,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 const INSTANCE_LOCK_NAME: &[u8] = b"\0f9-talk-instance-lock";
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "f9-talk", version, about = "Hold-to-talk dictation for Linux")]
 struct Cli {
     #[arg(long, value_enum, default_value_t = Backend::Cloud)]
@@ -54,10 +47,14 @@ struct Cli {
     #[arg(long, default_value = "wave")]
     style: String,
 
-    /// Force a specific cloud provider (overrides auto-select). Skipped
-    /// when --backend=local.
+    /// Force a specific cloud provider (overrides auto-select).
     #[arg(long, value_enum)]
     cloud_provider: Option<CloudProvider>,
+
+    /// Run headless (no indicator window). Useful for the M2 smoke
+    /// path or autostart on non-X11/Wayland sessions.
+    #[arg(long)]
+    headless: bool,
 
     #[arg(short, long)]
     verbose: bool,
@@ -78,9 +75,6 @@ enum CloudProvider {
 
 fn main() -> anyhow::Result<()> {
     init_tracing(parse_verbose());
-
-    // rustls 0.23 needs an explicit CryptoProvider; tokio-tungstenite
-    // doesn't pick one for us. Install ring once before any WS connect.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let cli = Cli::parse();
@@ -117,29 +111,83 @@ fn main() -> anyhow::Result<()> {
         debug!("loaded secrets: {masked:?}");
     }
 
-    if matches!(cli.style.as_str(), "wave") {
-        debug!("indicator style: wave");
-    } else {
+    if !matches!(cli.style.as_str(), "wave") {
         warn!(
             "indicator style {:?} not in v1; falling back to 'wave'",
             cli.style
         );
     }
 
+    let provider = pick_cloud_provider(cli.cloud_provider, &secrets);
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("f9-talk")
         .build()?;
 
-    let active_chord = match cli.backend {
-        Backend::Cloud => cli.local_hotkey.clone(),
-        Backend::Local => cli.local_hotkey.clone(),
-        Backend::Both => cli.local_hotkey.clone(),
+    // Mic streamer must spawn inside a runtime context.
+    let _guard = runtime.enter();
+    let (frame_rx, rms_handle, _mic_task) =
+        f9_talk_audio::spawn().map_err(|e| anyhow::anyhow!("could not start mic streamer: {e}"))?;
+    drop(_guard);
+
+    let indicator_state = Arc::new(IndicatorState::new(rms_handle));
+
+    let chord = cli.local_hotkey.clone();
+    let cli_for_task = cli.clone();
+    let secrets_for_task = secrets.clone();
+    let state_for_task = indicator_state.clone();
+    runtime.spawn(async move {
+        if let Err(e) = run_session_loop(
+            &chord,
+            provider,
+            &cli_for_task,
+            &secrets_for_task,
+            frame_rx,
+            state_for_task,
+        )
+        .await
+        {
+            tracing::error!("session loop error: {e}");
+        }
+    });
+
+    if cli.headless {
+        info!("--headless: blocking on Ctrl-C (no indicator window)");
+        runtime.block_on(async {
+            tokio::signal::ctrl_c().await.ok();
+        });
+        return Ok(());
+    }
+
+    // Indicator window dimensions: 360 × 80 — wider than the 320 px
+    // pill so the wave layers' soft glow doesn't clip at the edges.
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("f9-talk")
+        .with_app_id("f9-talk")
+        .with_inner_size([360.0, 80.0])
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_always_on_top()
+        .with_resizable(false)
+        .with_taskbar(false)
+        .with_mouse_passthrough(true);
+    let native_options = eframe::NativeOptions {
+        viewport,
+        ..Default::default()
     };
 
-    let provider = pick_cloud_provider(cli.cloud_provider, &secrets);
+    let state_for_app = indicator_state.clone();
+    eframe::run_native(
+        "f9-talk",
+        native_options,
+        Box::new(move |_cc| Ok(Box::new(IndicatorApp::new(state_for_app)))),
+    )
+    .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 
-    runtime.block_on(async move { run_session_loop(&active_chord, provider, &cli, &secrets).await })
+    info!("indicator closed; shutting down");
+    runtime.shutdown_timeout(Duration::from_secs(2));
+    Ok(())
 }
 
 fn parse_verbose() -> bool {
@@ -150,9 +198,7 @@ fn init_tracing(verbose: bool) {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         tracing_subscriber::EnvFilter::new(if verbose { "debug" } else { "info" })
     });
-
     let registry = tracing_subscriber::registry().with(env_filter);
-
     match tracing_journald::layer() {
         Ok(journald) => {
             registry
@@ -281,6 +327,8 @@ async fn run_session_loop(
     provider: Option<CloudProvider>,
     cli: &Cli,
     secrets: &HashMap<String, String>,
+    mut frame_rx: mpsc::Receiver<f9_talk_audio::Frame>,
+    indicator: Arc<IndicatorState>,
 ) -> anyhow::Result<()> {
     let provider = match (cli.backend, provider) {
         (Backend::Cloud, None) => {
@@ -323,11 +371,8 @@ async fn run_session_loop(
         }
     };
 
-    let (mut frame_rx, _rms, _mic_task) =
-        f9_talk_audio::spawn().map_err(|e| anyhow::anyhow!("could not start mic streamer: {e}"))?;
-
     info!(
-        "f9-talk M2 ready. hold {} to dictate (cloud={backend_name}, Ctrl-C to quit)",
+        "f9-talk M3 ready. hold {} to dictate (cloud={backend_name}, Ctrl-C to quit)",
         chord
     );
     let mut typer = Typer::new()?;
@@ -343,6 +388,8 @@ async fn run_session_loop(
                     Some(HotkeyEvent::Pressed) => {
                         let press_at = Instant::now();
                         backend.begin_session().await;
+                        indicator.set_recording(true);
+                        indicator.set_status_text(None);
                         info!("🎙  recording…");
                         session = Some(SessionInProgress {
                             press_at,
@@ -353,6 +400,8 @@ async fn run_session_loop(
                     Some(HotkeyEvent::Released) => {
                         let Some(sess) = session.take() else { continue; };
                         let release_at = Instant::now();
+                        indicator.set_recording(false);
+                        indicator.set_status_text(Some("✏  Transcribing…".to_string()));
                         let result = backend.end_session(Duration::from_millis(350)).await;
                         let final_at = Instant::now();
                         info!(
@@ -366,8 +415,13 @@ async fn run_session_loop(
                         );
                         if result.transcript.is_empty() {
                             info!("(no speech detected)");
-                        } else if let Err(e) = typer.type_text(&result.transcript) {
-                            warn!("typer failed: {e}");
+                            indicator.set_status_text(None);
+                        } else {
+                            indicator.set_status_text(Some("⌨  Typing…".to_string()));
+                            if let Err(e) = typer.type_text(&result.transcript) {
+                                warn!("typer failed: {e}");
+                            }
+                            indicator.set_status_text(None);
                         }
                     }
                     None => {
