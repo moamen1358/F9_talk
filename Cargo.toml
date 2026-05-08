@@ -48,12 +48,13 @@ hotkey-listener = "0.3"
 evdev = "0.13"
 crossbeam-channel = "0.5"
 tokio-util = { version = "0.7", features = ["rt"] }
+arboard = "3"
 
 # STT (local)
 # whisper-rs is gated behind the `cuda` feature in the stt crate.
 
 # UI
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "wgpu", "x11"] }
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "x11"] }
 egui = "0.32"
 egui_extras = "0.32"
 image = { version = "0.25", default-features = false, features = ["png"] }

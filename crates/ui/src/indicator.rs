@@ -53,6 +53,14 @@ pub struct IndicatorApp {
     anim_t0: Instant,
     positioner: Option<Positioner>,
     last_recording: bool,
+    /// Frames remaining over which we'll keep re-asserting the
+    /// OuterPosition. Some window managers (notably GNOME-shell on
+    /// Pop!_OS) silently drop the first cross-monitor move, so we
+    /// resend the position for ~5 consecutive 16 ms frames after a
+    /// press starts.
+    reposition_frames_left: u32,
+    pending_position: Option<egui::Pos2>,
+    last_visible: bool,
     keys_dialog: KeysDialogState,
 }
 
@@ -74,6 +82,9 @@ impl IndicatorApp {
             anim_t0: Instant::now(),
             positioner,
             last_recording: false,
+            reposition_frames_left: 0,
+            pending_position: None,
+            last_visible: true,
             keys_dialog,
         }
     }
@@ -90,18 +101,28 @@ impl IndicatorApp {
     }
 
     fn maybe_reposition(&mut self, ctx: &egui::Context, recording: bool) {
-        // Re-anchor on the rising edge of `recording`. Querying X11 ~5
-        // ms is fine on press; we don't want to redo it every frame.
+        // Rising edge of `recording`: query X11 for the focused-window
+        // position and remember it. The actual `OuterPosition` is then
+        // resent for ~5 frames so cross-monitor moves stick on WMs that
+        // ignore the first request.
         if recording && !self.last_recording {
             if let Some(positioner) = self.positioner.as_ref() {
                 if let Some((x, y)) = positioner.compute_position(INDICATOR_W, INDICATOR_H) {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                        x as f32, y as f32,
-                    )));
+                    self.pending_position = Some(egui::pos2(x as f32, y as f32));
+                    self.reposition_frames_left = 5;
                 }
             }
         }
         self.last_recording = recording;
+
+        // Re-assert the OuterPosition on consecutive frames so the WM
+        // can't ignore the very first request.
+        if self.reposition_frames_left > 0 {
+            if let Some(pos) = self.pending_position {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+                self.reposition_frames_left -= 1;
+            }
+        }
     }
 }
 
@@ -118,6 +139,16 @@ impl eframe::App for IndicatorApp {
         maybe_show_dialog(ctx, &self.keys_dialog);
 
         self.maybe_reposition(ctx, recording);
+
+        // Hide the entire window when there's nothing to show. This
+        // matches the Python build's `hide_recording.emit()` behaviour
+        // and avoids any compositor-drawn window outline lingering on
+        // screen between presses.
+        let want_visible = recording || status.is_some();
+        if want_visible != self.last_visible {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(want_visible));
+            self.last_visible = want_visible;
+        }
 
         if !recording && status.is_none() {
             // Idle — drop to 1 fps so we wake quickly when state flips.

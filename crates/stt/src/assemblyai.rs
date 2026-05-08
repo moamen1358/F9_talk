@@ -23,7 +23,7 @@ use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use serde::Deserialize;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -53,7 +53,10 @@ pub struct AssemblyAi {
 struct SharedState {
     recording: Mutex<bool>,
     session_finals: Mutex<Vec<String>>,
-    final_arrived: Notify,
+    /// Per-session oneshot. Replaced at every end_session() so a late
+    /// final from the previous press never wakes the next press's
+    /// await early. See the matching comment in deepgram.rs.
+    final_signal: Mutex<Option<oneshot::Sender<()>>>,
     shutting_down: std::sync::atomic::AtomicBool,
 }
 
@@ -71,7 +74,7 @@ impl AssemblyAi {
             state: Arc::new(SharedState {
                 recording: Mutex::new(false),
                 session_finals: Mutex::new(Vec::new()),
-                final_arrived: Notify::new(),
+                final_signal: Mutex::new(None),
                 shutting_down: std::sync::atomic::AtomicBool::new(false),
             }),
             cmd_tx: Mutex::new(None),
@@ -126,6 +129,9 @@ impl Stt for AssemblyAi {
     async fn begin_session(&self) {
         *self.state.recording.lock() = true;
         self.state.session_finals.lock().clear();
+        // Drop any signal from a previous end_session — late Turn
+        // events from the prior press will find None and silently drop.
+        *self.state.final_signal.lock() = None;
     }
 
     async fn send_audio(&self, pcm: &[u8]) {
@@ -140,14 +146,17 @@ impl Stt for AssemblyAi {
 
     async fn end_session(&self, timeout: Duration) -> SessionResult {
         let started = Instant::now();
+        let (signal_tx, signal_rx) = oneshot::channel();
+        *self.state.final_signal.lock() = Some(signal_tx);
         *self.state.recording.lock() = false;
 
         if let Some(tx) = self.cmd_tx.lock().clone() {
             let _ = tx.try_send(Cmd::Terminate);
         }
 
-        let _ = tokio::time::timeout(timeout, self.state.final_arrived.notified()).await;
+        let _ = tokio::time::timeout(timeout, signal_rx).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
+        *self.state.final_signal.lock() = None;
 
         let transcript = self
             .state
@@ -336,13 +345,17 @@ fn handle_text(text: &str, state: &Arc<SharedState>) {
             }
             debug!("aai turn: {trimmed:?}");
             if !*state.recording.lock() {
-                state.final_arrived.notify_one();
+                if let Some(tx) = state.final_signal.lock().take() {
+                    let _ = tx.send(());
+                }
             }
         }
         Some("Termination") => {
             debug!("aai: termination");
             if !*state.recording.lock() {
-                state.final_arrived.notify_one();
+                if let Some(tx) = state.final_signal.lock().take() {
+                    let _ = tx.send(());
+                }
             }
         }
         Some(other) => trace!("aai: unhandled type {other}"),

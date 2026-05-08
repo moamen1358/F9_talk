@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use serde::Deserialize;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{http::HeaderValue, Message};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -62,7 +62,11 @@ pub struct Deepgram {
 struct SharedState {
     recording: Mutex<bool>,
     session_finals: Mutex<Vec<String>>,
-    final_arrived: Notify,
+    /// One-shot signal published by `_on_message` when a final arrives
+    /// after end_session has set recording=false. Per-session: replaced
+    /// at the start of every end_session() call so a late final from a
+    /// previous press can never wake the next press's await early.
+    final_signal: Mutex<Option<oneshot::Sender<()>>>,
     last_error: Mutex<Option<String>>,
     shutting_down: std::sync::atomic::AtomicBool,
 }
@@ -81,7 +85,7 @@ impl Deepgram {
             state: Arc::new(SharedState {
                 recording: Mutex::new(false),
                 session_finals: Mutex::new(Vec::new()),
-                final_arrived: Notify::new(),
+                final_signal: Mutex::new(None),
                 last_error: Mutex::new(None),
                 shutting_down: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -139,9 +143,9 @@ impl Stt for Deepgram {
     async fn begin_session(&self) {
         *self.state.recording.lock() = true;
         self.state.session_finals.lock().clear();
-        // Reset the notify by acquiring + dropping a permit.
-        // (`Notify` doesn't have a clear; using notify_one before begin
-        // would be racy; we just rely on `recording=true` gating.)
+        // Drop any sender from a previous end_session — late finals
+        // from the prior press will find None and silently drop.
+        *self.state.final_signal.lock() = None;
         *self.state.last_error.lock() = None;
     }
 
@@ -158,17 +162,26 @@ impl Stt for Deepgram {
 
     async fn end_session(&self, timeout: Duration) -> SessionResult {
         let started = Instant::now();
+        // Install a fresh oneshot signal BEFORE flipping recording=false.
+        // Otherwise a final that lands between recording=false and the
+        // signal install would be lost (no waker).
+        let (signal_tx, signal_rx) = oneshot::channel();
+        *self.state.final_signal.lock() = Some(signal_tx);
         *self.state.recording.lock() = false;
 
         if let Some(tx) = self.cmd_tx.lock().clone() {
             let _ = tx.try_send(Cmd::Finalize);
         }
 
-        // Wait up to `timeout` for the reader to set `final_arrived` after
-        // it sees an is_final message arrive while !recording.
-        let _ = tokio::time::timeout(timeout, self.state.final_arrived.notified()).await;
-        // Tiny grace for any straggler.
+        // Wait up to `timeout` for the message handler to fire the
+        // oneshot. Late finals from THIS press's audio fill in
+        // session_finals; if the timeout expires first, we return
+        // whatever's in there (probably empty).
+        let _ = tokio::time::timeout(timeout, signal_rx).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
+        // Drop the slot so a late final from THIS session doesn't
+        // wake the next press.
+        *self.state.final_signal.lock() = None;
 
         let transcript = self
             .state
@@ -383,7 +396,11 @@ fn handle_text(text: &str, state: &Arc<SharedState>) {
 
     if !*state.recording.lock() {
         // The press is over and we got a final after end_session ran:
-        // wake the waiter.
-        state.final_arrived.notify_one();
+        // wake the waiter via the per-session oneshot, if it's still
+        // installed. Late finals (after end_session has already
+        // returned) find None and silently drop.
+        if let Some(tx) = state.final_signal.lock().take() {
+            let _ = tx.send(());
+        }
     }
 }

@@ -1,14 +1,23 @@
-//! Direct `/dev/uinput` typer: builds a virtual keyboard at construction,
-//! reuses it for every press, and emits scancode press/release pairs with
-//! `evdev::uinput::VirtualDevice`.
+//! Text injection with three fallbacks (in priority order):
 //!
-//! ASCII printable text maps directly to (key, shift?). Non-ASCII chars
-//! use the IBus Ctrl+Shift+U + hex + space sequence which works on every
-//! modern Linux desktop with IBus or fcitx running (Pop!_OS default).
+//! 1. **`xdotool type --clearmodifiers --delay 0 -- <text>`** — the
+//!    primary path. xdotool types at the X11 *keysym* level (not
+//!    scancode), which means it respects the active keyboard layout
+//!    and "h" really comes out as "h" whether the user is on `us` or
+//!    `ara`. This is exactly how the Python `f9_talk/input/typer.py`
+//!    worked, and we keep it because v0.4's evdev-uinput layer can't
+//!    produce keysym-level events.
+//! 2. **Clipboard + Ctrl+V** — clean fallback when xdotool isn't
+//!    installed. Sets the system clipboard via `arboard`, then sends
+//!    Ctrl+V via uinput. Layout-stable on most systems but Ctrl+V is
+//!    technically scancode-based, so unusual layouts can break it.
+//! 3. **Direct uinput scancode synthesis** — last resort. Only
+//!    correct under en-US layout.
 //!
 //! `/dev/uinput` is mode 0600 root:root by default. Ship the
-//! `packaging/debian/udev/99-f9-talk.rules` file (KERNEL=="uinput",
-//! MODE="0660", GROUP="input") to grant the input group write access.
+//! `packaging/debian/udev/99-f9-talk.rules` file
+//! (KERNEL=="uinput", MODE="0660", GROUP="input") to grant the input
+//! group write access for the uinput fallback paths.
 
 use std::path::Path;
 use std::thread::sleep;
@@ -70,6 +79,8 @@ pub fn preflight() -> Result<(), PreflightError> {
 
 pub struct Typer {
     device: VirtualDevice,
+    clipboard: Option<arboard::Clipboard>,
+    has_xdotool: bool,
 }
 
 impl Typer {
@@ -87,12 +98,33 @@ impl Typer {
             .build()
             .map_err(|e| anyhow::anyhow!("uinput build failed: {e}"))?;
 
-        // The kernel needs a tiny moment between device creation and
-        // first event before Xorg / Wayland recognise the new keyboard.
         sleep(Duration::from_millis(120));
 
-        info!("uinput typer ready (virtual device: 'f9-talk virtual keyboard')");
-        Ok(Typer { device })
+        let has_xdotool = which("xdotool");
+        let clipboard = match arboard::Clipboard::new() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                warn!("could not open clipboard ({e})");
+                None
+            }
+        };
+
+        let primary = if has_xdotool {
+            "xdotool"
+        } else if clipboard.is_some() {
+            "clipboard+Ctrl+V"
+        } else {
+            "scancode (en-US layout only)"
+        };
+        info!(
+            "uinput typer ready (virtual device: 'f9-talk virtual keyboard'; \
+             primary={primary})"
+        );
+        Ok(Typer {
+            device,
+            clipboard,
+            has_xdotool,
+        })
     }
 
     pub fn type_text(&mut self, text: &str) -> anyhow::Result<()> {
@@ -100,6 +132,38 @@ impl Typer {
             return Ok(());
         }
         sleep(PRE_TYPE_SLEEP);
+
+        // 1. xdotool — keysym-level, layout-independent. Same path
+        //    Python's f9_talk/input/typer.py uses.
+        if self.has_xdotool {
+            match std::process::Command::new("xdotool")
+                .args(["type", "--clearmodifiers", "--delay", "0", "--", text])
+                .status()
+            {
+                Ok(s) if s.success() => {
+                    debug!("xdotool typed {} chars", text.len());
+                    return Ok(());
+                }
+                Ok(s) => warn!("xdotool exited non-zero ({s}); falling back to clipboard"),
+                Err(e) => warn!("xdotool spawn failed ({e}); falling back to clipboard"),
+            }
+        }
+
+        // 2. clipboard + Ctrl+V via uinput.
+        if let Some(cb) = self.clipboard.as_mut() {
+            match cb.set_text(text) {
+                Ok(()) => {
+                    debug!("clipboard set ({} chars); sending Ctrl+V", text.len());
+                    sleep(Duration::from_millis(80));
+                    return self.send_ctrl_v();
+                }
+                Err(e) => {
+                    warn!("clipboard set_text failed ({e}); falling back to scancode typing");
+                }
+            }
+        }
+
+        // 3. raw scancode synthesis (en-US only).
         for c in text.chars() {
             if c == '\r' {
                 continue;
@@ -111,6 +175,18 @@ impl Typer {
             }
             sleep(KEY_DELAY);
         }
+        Ok(())
+    }
+
+    fn send_ctrl_v(&mut self) -> anyhow::Result<()> {
+        // Ctrl+V scancodes are layout-invariant; X11 / Wayland handle
+        // pasting whatever string is on the clipboard.
+        self.device.emit(&[
+            key_event(KeyCode::KEY_LEFTCTRL, 1),
+            key_event(KeyCode::KEY_V, 1),
+            key_event(KeyCode::KEY_V, 0),
+            key_event(KeyCode::KEY_LEFTCTRL, 0),
+        ])?;
         Ok(())
     }
 
@@ -129,11 +205,8 @@ impl Typer {
     }
 
     fn type_unicode(&mut self, codepoint: u32) -> anyhow::Result<()> {
-        // IBus / GTK Ctrl+Shift+U dance: Ctrl+Shift+U, hex digits, space.
         let hex = format!("{codepoint:x}");
         debug!("typing unicode U+{hex} via Ctrl+Shift+U");
-
-        // Press Ctrl+Shift+U
         self.device.emit(&[
             key_event(KeyCode::KEY_LEFTCTRL, 1),
             key_event(KeyCode::KEY_LEFTSHIFT, 1),
@@ -143,16 +216,12 @@ impl Typer {
             key_event(KeyCode::KEY_LEFTCTRL, 0),
         ])?;
         sleep(Duration::from_millis(5));
-
-        // Hex digits
         for c in hex.chars() {
             if let Some((key, _shift)) = ascii_char_to_key(c) {
                 self.tap(key, false)?;
                 sleep(KEY_DELAY);
             }
         }
-
-        // Space to commit
         self.tap(KeyCode::KEY_SPACE, false)?;
         Ok(())
     }
@@ -160,6 +229,18 @@ impl Typer {
 
 fn key_event(key: KeyCode, value: i32) -> InputEvent {
     InputEvent::new(EventType::KEY.0, key.code(), value)
+}
+
+fn which(cmd: &str) -> bool {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(':') {
+            let p = std::path::Path::new(dir).join(cmd);
+            if p.is_file() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Map an ASCII printable char to (KeyCode, needs_shift). For everything

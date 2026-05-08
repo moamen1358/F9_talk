@@ -205,7 +205,18 @@ fn main() -> anyhow::Result<()> {
         .with_always_on_top()
         .with_resizable(false)
         .with_taskbar(false)
-        .with_mouse_passthrough(true);
+        .with_mouse_passthrough(true)
+        // X11WindowType::Notification → tells the WM "this is an
+        // override-redirect-style overlay, do not decorate it, do not
+        // put it in the taskbar/alt-tab list, do not move it under
+        // any window-management policy". This is the bit that
+        // GNOME/Mutter respects when `with_decorations(false)` alone
+        // doesn't get rid of the title bar.
+        .with_window_type(egui::X11WindowType::Notification)
+        // Start hidden — IndicatorApp toggles visibility on the
+        // rising/falling edge of `recording`/status_text so users
+        // only see the indicator while F9 is held.
+        .with_visible(false);
     // Pre-compute initial position so the first frame doesn't flash at
     // the eframe default before maybe_reposition runs on the first press.
     if let Ok(pos) = f9_talk_ui::Positioner::new() {
