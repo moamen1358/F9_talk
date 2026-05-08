@@ -47,7 +47,7 @@ class MicStreamer:
                 f"--rate={self.SAMPLE_RATE}",
                 "--channels=1",
                 "--format=s16le",
-                "--latency-msec=15",
+                "--latency-msec=100",
                 "--client-name=f9-talk",
             ]
             self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
