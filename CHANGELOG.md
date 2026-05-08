@@ -4,6 +4,13 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.2.1] — 2026-05-08
+
+### Fixed
+- AssemblyAI streaming sessions failed at connect with `1 validation error for StreamingParameters` after the `assemblyai` SDK 0.64 made `speech_model` a required field. Now passes `speech_model="universal"` (Universal-3 streaming model) alongside `sample_rate`
+
+---
+
 ## [0.2.0] — 2026-05-08
 
 ### Added
