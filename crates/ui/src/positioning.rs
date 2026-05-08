@@ -1,0 +1,165 @@
+//! Smart positioning for the indicator: bottom-center of the focused
+//! window, with fallbacks to the mouse cursor position and the bottom
+//! center of the screen. Mirrors Python's `f9_talk/ui/indicator.py:_reposition`
+//! but talks to X11 directly via `x11rb` instead of shelling out to
+//! `xdotool`.
+//!
+//! All queries take low single-digit milliseconds. The connection is
+//! reused across queries; opening it costs ~5 ms on first call.
+
+use std::time::Instant;
+
+use tracing::{debug, trace, warn};
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, Window};
+use x11rb::rust_connection::RustConnection;
+
+const MARGIN_PX: i32 = 8;
+const ABOVE_FOCUSED_BOTTOM: i32 = 24;
+const ABOVE_CURSOR: i32 = 28;
+const ABOVE_SCREEN_BOTTOM: i32 = 120;
+
+/// Reusable x11 query handle. Construction is cheap (one TCP/UDS
+/// connect to the X server). Keep one per process and reuse.
+pub struct Positioner {
+    conn: RustConnection,
+    screen_num: usize,
+    net_active_window: u32,
+}
+
+impl Positioner {
+    pub fn new() -> Result<Self, x11rb::errors::ConnectionError> {
+        let (conn, screen_num) =
+            x11rb::connect(None).map_err(|_| x11rb::errors::ConnectionError::UnknownError)?;
+        let net_active_window = conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .map(|r| r.atom)
+            .unwrap_or(0);
+        Ok(Self {
+            conn,
+            screen_num,
+            net_active_window,
+        })
+    }
+
+    /// Compute (x, y) in root pixel coords where the indicator's
+    /// top-left corner should sit. Returns `None` if every query
+    /// (active window, cursor, screen) fails — caller should leave
+    /// the window where it is.
+    pub fn compute_position(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
+        let started = Instant::now();
+        let screen_size = self.screen_size();
+
+        let (raw_x, raw_y) = self
+            .focused_window_bottom(indicator_w, indicator_h)
+            .or_else(|| self.cursor_above(indicator_w, indicator_h))
+            .or_else(|| self.screen_center_bottom(indicator_w, indicator_h, screen_size))?;
+
+        let pos = clamp_to_screen(raw_x, raw_y, indicator_w, indicator_h, screen_size);
+
+        trace!(
+            "indicator pos: ({},{}) (took {:.0?})",
+            pos.0,
+            pos.1,
+            started.elapsed()
+        );
+        Some(pos)
+    }
+
+    fn screen_size(&self) -> Option<(i32, i32)> {
+        let screen = self.conn.setup().roots.get(self.screen_num)?;
+        Some((
+            screen.width_in_pixels as i32,
+            screen.height_in_pixels as i32,
+        ))
+    }
+
+    fn root_window(&self) -> Option<Window> {
+        Some(self.conn.setup().roots.get(self.screen_num)?.root)
+    }
+
+    fn active_window(&self) -> Option<Window> {
+        if self.net_active_window == 0 {
+            return None;
+        }
+        let root = self.root_window()?;
+        let cookie = self
+            .conn
+            .get_property(false, root, self.net_active_window, AtomEnum::WINDOW, 0, 1)
+            .ok()?;
+        let reply = cookie.reply().ok()?;
+        let mut iter = reply.value32()?;
+        let win = iter.next()?;
+        if win == 0 || win == root {
+            None
+        } else {
+            Some(win)
+        }
+    }
+
+    fn focused_window_bottom(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
+        let win = self.active_window()?;
+        let root = self.root_window()?;
+        let geom = self.conn.get_geometry(win).ok()?.reply().ok()?;
+        // Translate (0,0) of the window into root coordinates so the
+        // result is independent of nested reparenting (window managers
+        // wrap apps in their own frame windows).
+        let xlate = self
+            .conn
+            .translate_coordinates(win, root, 0, 0)
+            .ok()?
+            .reply()
+            .ok()?;
+        let win_x = xlate.dst_x as i32;
+        let win_y = xlate.dst_y as i32;
+        let win_w = geom.width as i32;
+        let win_h = geom.height as i32;
+        if win_w < 60 || win_h < 60 {
+            // Too small to be a meaningful focused app (likely a tooltip
+            // or popup that grabbed focus briefly). Skip.
+            return None;
+        }
+        let x = win_x + (win_w - indicator_w) / 2;
+        let y = win_y + win_h - indicator_h - ABOVE_FOCUSED_BOTTOM;
+        debug!(
+            "indicator anchored to focused window at ({x},{y}) [{win_w}x{win_h}@{win_x},{win_y}]"
+        );
+        Some((x, y))
+    }
+
+    fn cursor_above(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
+        let root = self.root_window()?;
+        let p = self.conn.query_pointer(root).ok()?.reply().ok()?;
+        let x = p.root_x as i32 - indicator_w / 2;
+        let y = p.root_y as i32 - indicator_h - ABOVE_CURSOR;
+        debug!("indicator anchored above cursor at ({x},{y})");
+        Some((x, y))
+    }
+
+    fn screen_center_bottom(
+        &self,
+        indicator_w: i32,
+        indicator_h: i32,
+        screen: Option<(i32, i32)>,
+    ) -> Option<(i32, i32)> {
+        let (sw, sh) = screen?;
+        let x = (sw - indicator_w) / 2;
+        let y = sh - indicator_h - ABOVE_SCREEN_BOTTOM;
+        warn!("indicator anchored at screen-bottom-center fallback ({x},{y})");
+        Some((x, y))
+    }
+}
+
+fn clamp_to_screen(x: i32, y: i32, w: i32, h: i32, screen: Option<(i32, i32)>) -> (i32, i32) {
+    let (sw, sh) = match screen {
+        Some(s) => s,
+        None => return (x, y),
+    };
+    let max_x = sw - w - MARGIN_PX;
+    let max_y = sh - h - MARGIN_PX;
+    let x = x.clamp(MARGIN_PX, max_x.max(MARGIN_PX));
+    let y = y.clamp(MARGIN_PX, max_y.max(MARGIN_PX));
+    (x, y)
+}

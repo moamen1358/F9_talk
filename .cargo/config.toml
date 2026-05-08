@@ -1,0 +1,6 @@
+# Workspace cargo config. Keeps target dir out of the repo root.
+[build]
+target-dir = "target"
+
+[term]
+quiet = false

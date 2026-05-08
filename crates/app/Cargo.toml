@@ -1,0 +1,75 @@
+[package]
+name = "f9-talk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: hold-to-talk dictation for Linux."
+
+[[bin]]
+name = "f9-talk"
+path = "src/main.rs"
+
+[features]
+# CUDA + ydotool-fallback are wired up alongside the modules they gate (M2/M1).
+default = []
+cuda = ["f9-talk-stt/cuda"]
+cpu-only = ["f9-talk-stt/cpu-only"]
+ydotool-fallback = ["f9-talk-input/ydotool-fallback"]
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+f9-talk-input = { path = "../input" }
+f9-talk-audio = { path = "../audio" }
+f9-talk-stt = { path = "../stt", default-features = false }
+f9-talk-ui = { path = "../ui" }
+f9-talk-translate = { path = "../translate" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-journald = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+libc = "0.2"
+# Direct eframe + egui deps for the indicator viewport / NativeOptions.
+eframe = { workspace = true }
+egui = { workspace = true }
+# rustls 0.23 requires an explicit CryptoProvider install at startup
+# when used through tokio-tungstenite's rustls-tls-native-roots feature.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[package.metadata.deb]
+name = "f9-talk"
+maintainer = "Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
+copyright = "2026, Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
+license-file = ["../../LICENSE", "0"]
+extended-description = """Hold F9 to dictate; text appears at your cursor.
+Cloud STT via AssemblyAI Universal-3 Pro Streaming (default) or Deepgram
+Nova-3, or local whisper.cpp (optional CUDA). Audio-reactive overlay
+indicator and system-tray controls. Linux-only (X11 + Wayland on
+compositors that support always-on-top transparent windows)."""
+section = "utils"
+priority = "optional"
+# Replaces / Conflicts on the Python f9-talk so `dpkg -i` cleanly
+# removes /opt/f9-talk before laying down the Rust binary.
+conflicts = "f9-talk (<= 0.3.99)"
+replaces = "f9-talk (<= 0.3.99)"
+depends = "$auto, libc6, libayatana-appindicator3-1, libgtk-3-0, libxkbcommon0, libxcb1, libxcb-render0, libxcb-shape0, libxcb-xfixes0, libasound2, libdbus-1-3"
+maintainer-scripts = "../../packaging/debian"
+assets = [
+    # Binary
+    ["target/release/f9-talk", "usr/bin/", "755"],
+    # Menu entry + autostart
+    ["../../packaging/debian/applications/f9-talk.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/debian/autostart/f9-talk.desktop", "etc/xdg/autostart/", "644"],
+    # Icons (re-used from the Python source tree)
+    ["../../f9_talk/assets/f9-talk.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../f9_talk/assets/f9-talk.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    # Udev rule for /dev/uinput
+    ["../../packaging/debian/udev/99-f9-talk.rules", "etc/udev/rules.d/", "644"],
+    # README / changelog as docs
+    ["../../README.md", "usr/share/doc/f9-talk/", "644"],
+    ["../../CHANGELOG.md", "usr/share/doc/f9-talk/CHANGELOG.md", "644"],
+    ["../../LICENSE", "usr/share/doc/f9-talk/LICENSE", "644"],
+]

@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/input",
+    "crates/audio",
+    "crates/stt",
+    "crates/ui",
+    "crates/translate",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.78"
+authors = ["Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"]
+license = "MIT"
+homepage = "https://github.com/moamen1358/F9_talk"
+repository = "https://github.com/moamen1358/F9_talk"
+description = "Hold-to-talk system-wide dictation for Linux"
+
+[workspace.dependencies]
+# Async + utilities
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-journald = "0.3"
+parking_lot = "0.12"
+thiserror = "2"
+anyhow = "1"
+
+# Serialization + config
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Networking
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+url = "2"
+
+# Audio + input
+cpal = "0.17"
+hotkey-listener = "0.3"
+evdev = "0.13"
+crossbeam-channel = "0.5"
+tokio-util = { version = "0.7", features = ["rt"] }
+arboard = "3"
+
+# STT (local)
+# whisper-rs is gated behind the `cuda` feature in the stt crate.
+
+# UI
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "x11"] }
+egui = "0.32"
+egui_extras = "0.32"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tray-icon = "0.21"
+gtk = "0.18"
+glib = "0.18"
+
+# X11 helpers
+x11rb = "0.13"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+panic = "abort"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = "none"

@@ -1,0 +1,17 @@
+[package]
+name = "f9-talk-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: session state machine + audio frame routing (no I/O deps)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }

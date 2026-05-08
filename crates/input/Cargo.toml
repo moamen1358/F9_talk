@@ -1,0 +1,28 @@
+[package]
+name = "f9-talk-input"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: hotkey listener + uinput typer."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+ydotool-fallback = []
+
+[lints.rust]
+unsafe_code = "allow"  # evdev uinput crate uses unsafe internally; we don't.
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+hotkey-listener = { workspace = true }
+evdev = { workspace = true }
+anyhow = { workspace = true }
+arboard = { workspace = true }

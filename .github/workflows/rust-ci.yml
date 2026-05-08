@@ -1,0 +1,74 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main, v0.4-rust]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: cargo check + clippy + test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps for cpal / tray-icon / eframe / whisper-rs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libdbus-1-dev \
+            libudev-dev \
+            libevdev-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig1-dev \
+            libxdo-dev \
+            libclang-dev \
+            libssl-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo clippy (no-default-features)
+        run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
+
+      - name: cargo test (default features)
+        run: cargo test --workspace
+
+      - name: cargo test (no-default-features)
+        run: cargo test --workspace --no-default-features
+
+  deny:
+    name: cargo deny (licenses + advisories + bans)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          # `--all-features` is a *global* cargo-deny option that must
+          # appear BEFORE the `check` subcommand; the action's
+          # `arguments` slot inserts there. `command-arguments` would
+          # put it AFTER `check` which fails with "unexpected argument".
+          arguments: "--all-features"

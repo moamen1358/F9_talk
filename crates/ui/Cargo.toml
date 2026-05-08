@@ -1,0 +1,28 @@
+[package]
+name = "f9-talk-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: egui indicator + tray + keys dialog."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+f9-talk-audio = { path = "../audio" }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+egui_extras = { workspace = true }
+image = { workspace = true }
+tray-icon = { workspace = true }
+gtk = { workspace = true }
+glib = { workspace = true }
+x11rb = { workspace = true }
+crossbeam-channel = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
