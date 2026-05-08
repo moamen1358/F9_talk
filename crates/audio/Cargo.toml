@@ -1,0 +1,20 @@
+[package]
+name = "f9-talk-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: cpal microphone streamer with auto-restart."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+# cpal is added when the mic streamer is implemented (needs `libasound2-dev`).
+# cpal = { workspace = true }

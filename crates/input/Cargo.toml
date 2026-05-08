@@ -1,0 +1,26 @@
+[package]
+name = "f9-talk-input"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: hotkey listener + uinput typer."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+ydotool-fallback = []
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+# evdev / hotkey-listener added when M1 hotkey impl begins. They link
+# against libevdev at build time but it's already on Pop!_OS 22.04;
+# keeping out of the empty-stub manifest to keep the first compile clean.
+# hotkey-listener = { workspace = true }
+# evdev = { workspace = true }

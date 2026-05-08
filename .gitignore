@@ -34,3 +34,7 @@ secrets.env
 
 # Local config
 ~/.config/voci-dictate/
+
+# Rust
+target/
+Cargo.lock.bak

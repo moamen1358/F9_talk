@@ -1,0 +1,44 @@
+[package]
+name = "f9-talk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: hold-to-talk dictation for Linux."
+
+[[bin]]
+name = "f9-talk"
+path = "src/main.rs"
+
+[features]
+# CUDA + ydotool-fallback are wired up alongside the modules they gate (M2/M1).
+default = []
+cuda = ["f9-talk-stt/cuda"]
+cpu-only = ["f9-talk-stt/cpu-only"]
+ydotool-fallback = ["f9-talk-input/ydotool-fallback"]
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+f9-talk-input = { path = "../input" }
+f9-talk-audio = { path = "../audio" }
+f9-talk-stt = { path = "../stt", default-features = false }
+f9-talk-ui = { path = "../ui" }
+f9-talk-translate = { path = "../translate" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+# tracing-journald requires libsystemd; added when journald sink is wired.
+# tracing-journald = { workspace = true }
+
+[package.metadata.deb]
+# Filled in during M4 packaging milestone.
+maintainer = "Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
+copyright = "2026, Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"
+license-file = ["../../LICENSE", "0"]
+extended-description = "Hold F9 to dictate; text appears at your cursor. Cloud (AssemblyAI / Deepgram) or local (whisper.cpp + CUDA) STT, audio-reactive overlay."
+depends = "libc6, libayatana-appindicator3-1, libxkbcommon0, libxcb1"
+section = "utils"
+priority = "optional"

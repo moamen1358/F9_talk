@@ -1,0 +1,24 @@
+[package]
+name = "f9-talk-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: egui indicator + tray + keys dialog."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+f9-talk-core = { path = "../core" }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+# Heavy UI deps are added when we begin M3. They pull in GTK / atk / appindicator
+# system headers (`libgtk-3-dev libatk1.0-dev libayatana-appindicator3-dev …`).
+# eframe = { workspace = true }
+# egui = { workspace = true }
+# egui_extras = { workspace = true }
+# image = { workspace = true }
+# tray-icon = { workspace = true }
+# x11rb = { workspace = true }

@@ -1,0 +1,20 @@
+[package]
+name = "f9-talk-translate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "F9 Talk: Lingva (primary) + MyMemory (fallback) translation."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# reqwest pulls in rustls. Added when the translation impl lands.
+# reqwest = { workspace = true }
