@@ -8,6 +8,7 @@ def _build_app():
     """Build a DictateApp with all heavy collaborators mocked."""
     with (
         patch("f9_talk.app.DeepgramStreamingSTT"),
+        patch("f9_talk.app.AssemblyAIStreamingSTT"),
         patch("f9_talk.app.LocalWhisperSTT"),
         patch("f9_talk.app.MicStreamer"),
         patch("f9_talk.app.Typer"),
@@ -44,7 +45,36 @@ def test_unpaused_press_starts_session():
 
     with patch("f9_talk.app.canonical_key", return_value="f9"):
         app.cloud_hotkey = {"f9"}
-        app.cloud_stt = MagicMock()
+        app.cloud_stt_deepgram = MagicMock()
         app._on_press(MagicMock())
 
     app._begin_session.assert_called_once_with("cloud")
+
+
+def test_set_cloud_provider_switches_active_backend():
+    app = _build_app()
+    app.cloud_stt_deepgram = MagicMock(name="dg")
+    app.cloud_stt_assemblyai = MagicMock(name="aa")
+
+    assert app.cloud_stt is app.cloud_stt_deepgram
+
+    app.set_cloud_provider("assemblyai")
+    assert app.cloud_stt is app.cloud_stt_assemblyai
+
+    app.set_cloud_provider("deepgram")
+    assert app.cloud_stt is app.cloud_stt_deepgram
+
+
+def test_set_cloud_provider_rejects_unknown():
+    app = _build_app()
+    app.set_cloud_provider("googlestt")
+    assert app._cloud_provider == "deepgram"
+
+
+def test_set_cloud_provider_falls_back_when_assemblyai_missing():
+    app = _build_app()
+    app.cloud_stt_assemblyai = None
+
+    app.set_cloud_provider("assemblyai")
+
+    assert app._cloud_provider == "deepgram"

@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QAction, QColor, QIcon, QImage, QPixmap, qAlpha, qGray, qRgba
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QImage, QPixmap, qAlpha, qGray, qRgba
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 log = logging.getLogger(__name__)
@@ -35,11 +35,13 @@ class DictateTray(QSystemTrayIcon):
     """
 
     pause_changed = Signal(bool)
+    provider_changed = Signal(str)  # "deepgram" | "assemblyai"
     quit_requested = Signal()
 
-    def __init__(self, qapp: QApplication) -> None:
+    def __init__(self, qapp: QApplication, *, assemblyai_available: bool = True) -> None:
         super().__init__(qapp)
         self._paused = False
+        self._assemblyai_available = assemblyai_available
         # Prefer the system theme icon (installed by the .deb at
         # /usr/share/icons/hicolor/.../f9-talk.png) so GNOME's AppIndicator
         # extension can resolve it via the freedesktop icon-theme system.
@@ -55,6 +57,27 @@ class DictateTray(QSystemTrayIcon):
 
         menu = QMenu()
         menu.addAction(self._toggle_action)
+        menu.addSeparator()
+
+        provider_menu = menu.addMenu("Cloud provider")
+        provider_group = QActionGroup(self)
+        provider_group.setExclusive(True)
+        self._deepgram_action = QAction("Deepgram (Nova-3)", self, checkable=True)
+        self._deepgram_action.setChecked(True)
+        self._deepgram_action.triggered.connect(
+            lambda: self.provider_changed.emit("deepgram")
+        )
+        provider_group.addAction(self._deepgram_action)
+        provider_menu.addAction(self._deepgram_action)
+
+        self._assemblyai_action = QAction("AssemblyAI (Universal)", self, checkable=True)
+        self._assemblyai_action.setEnabled(self._assemblyai_available)
+        self._assemblyai_action.triggered.connect(
+            lambda: self.provider_changed.emit("assemblyai")
+        )
+        provider_group.addAction(self._assemblyai_action)
+        provider_menu.addAction(self._assemblyai_action)
+
         menu.addSeparator()
         menu.addAction(self._quit_action)
         self.setContextMenu(menu)

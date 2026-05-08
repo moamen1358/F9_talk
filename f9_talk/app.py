@@ -14,7 +14,7 @@ from pynput import keyboard
 
 from f9_talk.audio import MicStreamer
 from f9_talk.input import Typer, canonical_key, parse_hotkey
-from f9_talk.stt import DeepgramStreamingSTT, LocalWhisperSTT
+from f9_talk.stt import AssemblyAIStreamingSTT, DeepgramStreamingSTT, LocalWhisperSTT
 from f9_talk.translate import LingvaTranslator
 from f9_talk.ui import DictateIndicator
 
@@ -75,9 +75,17 @@ class DictateApp:
             self.local_stt = None
 
         if backend in ("both", "cloud"):
-            self.cloud_stt = DeepgramStreamingSTT(language="en", keywords=keywords)
+            self.cloud_stt_deepgram = DeepgramStreamingSTT(language="en", keywords=keywords)
+            self.cloud_stt_assemblyai: AssemblyAIStreamingSTT | None = None
+            if AssemblyAIStreamingSTT is not None:
+                try:
+                    self.cloud_stt_assemblyai = AssemblyAIStreamingSTT()
+                except RuntimeError as e:
+                    log.warning("AssemblyAI backend disabled: %s", e)
         else:
-            self.cloud_stt = None
+            self.cloud_stt_deepgram = None
+            self.cloud_stt_assemblyai = None
+        self._cloud_provider = "deepgram"
 
         self.mic = MicStreamer(on_frame=self._on_mic_frame)
 
@@ -93,6 +101,24 @@ class DictateApp:
     def set_paused(self, paused: bool) -> None:
         """When True, ignore all key presses. In-flight sessions still finish on release."""
         self._paused = paused
+
+    @property
+    def cloud_stt(self):
+        """Active cloud backend, dispatched by current provider selection."""
+        if self._cloud_provider == "assemblyai" and self.cloud_stt_assemblyai is not None:
+            return self.cloud_stt_assemblyai
+        return self.cloud_stt_deepgram
+
+    def set_cloud_provider(self, name: str) -> None:
+        """Switch active cloud backend. Takes effect on the next session."""
+        if name not in ("deepgram", "assemblyai"):
+            log.warning("Unknown cloud provider %r, ignored", name)
+            return
+        if name == "assemblyai" and self.cloud_stt_assemblyai is None:
+            log.warning("AssemblyAI backend unavailable; staying on deepgram")
+            return
+        self._cloud_provider = name
+        log.info("Cloud provider: %s", name)
 
     # ---------- hotkey routing ----------
 
@@ -218,8 +244,13 @@ class DictateApp:
     # ---------- start / stop ----------
 
     def start(self) -> None:
-        if self.cloud_stt is not None:
-            self.cloud_stt.start()
+        # Start every cloud backend so switching providers later doesn't pay
+        # connection-open cost. Deepgram opens a persistent WS; AssemblyAI is
+        # per-session so its start() is a no-op.
+        if self.cloud_stt_deepgram is not None:
+            self.cloud_stt_deepgram.start()
+        if self.cloud_stt_assemblyai is not None:
+            self.cloud_stt_assemblyai.start()
         if self.local_stt is not None:
             self.local_stt.start()
         self.mic.start()
@@ -244,7 +275,9 @@ class DictateApp:
             self._listener.stop()
             self._listener = None
         self.mic.stop()
-        if self.cloud_stt is not None:
-            self.cloud_stt.stop()
+        if self.cloud_stt_deepgram is not None:
+            self.cloud_stt_deepgram.stop()
+        if self.cloud_stt_assemblyai is not None:
+            self.cloud_stt_assemblyai.stop()
         if self.local_stt is not None:
             self.local_stt.stop()

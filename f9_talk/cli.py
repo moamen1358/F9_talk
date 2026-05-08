@@ -209,8 +209,12 @@ def main() -> int:
     from PySide6.QtWidgets import QSystemTrayIcon
     tray: DictateTray | None = None
     if QSystemTrayIcon.isSystemTrayAvailable():
-        tray = DictateTray(qapp)
+        tray = DictateTray(
+            qapp,
+            assemblyai_available=dictate.cloud_stt_assemblyai is not None,
+        )
         tray.pause_changed.connect(dictate.set_paused)
+        tray.provider_changed.connect(dictate.set_cloud_provider)
         tray.quit_requested.connect(qapp.quit)
         tray.show()
     else:

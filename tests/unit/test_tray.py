@@ -51,9 +51,10 @@ def test_set_paused_idempotent(tray):
     assert received == [True]
 
 
-def test_menu_has_two_actions(tray):
+def test_menu_has_three_top_level_items(tray):
+    """Pause/Resume + Cloud-provider submenu + Quit."""
     actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
-    assert len(actions) == 2
+    assert len(actions) == 3
 
 
 def test_menu_label_flips_with_state(tray):
@@ -65,12 +66,41 @@ def test_menu_label_flips_with_state(tray):
     assert actions[0].text() == "Resume listening"
 
 
+def test_provider_submenu_has_both_choices(tray):
+    actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
+    submenu = actions[1].menu()
+    sub_actions = submenu.actions()
+    assert sub_actions[0].text() == "Deepgram (Nova-3)"
+    assert sub_actions[0].isChecked() is True
+    assert sub_actions[1].text() == "AssemblyAI (Universal)"
+
+
+def test_provider_change_emits_signal(tray):
+    received: list[str] = []
+    tray.provider_changed.connect(received.append)
+
+    actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
+    submenu = actions[1].menu()
+    submenu.actions()[1].trigger()
+
+    assert received == ["assemblyai"]
+
+
+def test_assemblyai_disabled_when_unavailable(qapp):
+    t = DictateTray(qapp, assemblyai_available=False)
+    actions = [a for a in t.contextMenu().actions() if not a.isSeparator()]
+    submenu = actions[1].menu()
+    aa_action = submenu.actions()[1]
+    assert aa_action.isEnabled() is False
+    t.hide()
+
+
 def test_quit_action_emits_quit_requested(tray):
     received: list[bool] = []
     tray.quit_requested.connect(lambda: received.append(True))
 
     actions = [a for a in tray.contextMenu().actions() if not a.isSeparator()]
-    quit_action = actions[1]
+    quit_action = actions[2]
     quit_action.trigger()
 
     assert received == [True]
