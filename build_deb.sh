@@ -11,7 +11,7 @@
 #   sudo apt-get install -f   # fix any missing system deps if needed
 set -euo pipefail
 
-VERSION="0.2.1"
+VERSION="0.2.2"
 PKG="f9-talk"
 ARCH="all"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

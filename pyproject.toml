@@ -1,6 +1,6 @@
 [project]
 name = "f9-talk"
-version = "0.2.1"
+version = "0.2.2"
 description = "Hold-to-talk system-wide dictation for Linux. Cloud or local STT, audio-reactive overlay, optional translation."
 readme = "README.md"
 requires-python = ">=3.10"

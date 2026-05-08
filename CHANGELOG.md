@@ -4,10 +4,17 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.2.2] — 2026-05-08
+
+### Fixed
+- AssemblyAI: `speech_model="universal"` was rejected as an invalid enum value in SDK 0.64. The accepted English value is `"universal-streaming-english"` (others: `universal-streaming-multilingual`, `u3-rt-pro`, `whisper-rt`, `u3-pro`)
+
+---
+
 ## [0.2.1] — 2026-05-08
 
 ### Fixed
-- AssemblyAI streaming sessions failed at connect with `1 validation error for StreamingParameters` after the `assemblyai` SDK 0.64 made `speech_model` a required field. Now passes `speech_model="universal"` (Universal-3 streaming model) alongside `sample_rate`
+- AssemblyAI streaming sessions failed at connect with `1 validation error for StreamingParameters` after the `assemblyai` SDK 0.64 made `speech_model` a required field. v0.2.1 passed `speech_model="universal"` but that value is itself rejected — see v0.2.2 for the working fix
 
 ---
 

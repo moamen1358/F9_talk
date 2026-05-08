@@ -85,7 +85,7 @@ class AssemblyAIStreamingSTT:
             client.on(StreamingEvents.Error, self._on_error)
             client.connect(StreamingParameters(
                 sample_rate=self.sample_rate,
-                speech_model="universal",
+                speech_model="universal-streaming-english",
             ))
             self._client = client
         except Exception as e:  # noqa: BLE001
