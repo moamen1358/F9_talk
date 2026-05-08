@@ -38,3 +38,4 @@ secrets.env
 # Rust
 target/
 Cargo.lock.bak
+.claude/
