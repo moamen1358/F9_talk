@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,11 @@ class Typer:
         if not text:
             return
         if self._tool == "xdotool":
-            subprocess.run(["xdotool", "type", "--delay", "0", "--", text], check=False)
+            time.sleep(0.08)  # let the hotkey fully release before typing
+            subprocess.run(
+                ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", text],
+                check=False,
+            )
         elif self._tool == "wtype":
             subprocess.run(["wtype", "--", text], check=False)
         elif self._tool == "ydotool":
