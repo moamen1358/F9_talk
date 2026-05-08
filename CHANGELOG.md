@@ -4,10 +4,30 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 
 ---
 
+## [0.2.0] — 2026-05-08
+
+### Added
+- **Multi-provider cloud STT**: tray submenu lets you switch live between Deepgram Nova-3 (default), AssemblyAI Universal, and Gladia v2 — each backend implements the same `begin_session` / `send_audio` / `end_session` protocol
+- **System tray icon** with three states (active / paused / error) and a right-click menu: Pause/Resume listening, Cloud provider ▶, API Keys…, Quit. Left-click toggles pause
+- **API Keys dialog** reachable from the tray menu — three masked fields (Deepgram / AssemblyAI / Gladia) with per-field Show toggle. Save persists to `~/.config/F9_talk/secrets.env` preserving comments + unrelated entries; takes effect immediately (Deepgram reconnects, others pick up on next session)
+- **Error feedback**: failed STT sessions now pop a desktop notification with the provider error message and turn the tray icon red until the next successful session
+- **Spec-driven design docs** under `docs/superpowers/specs/` for tray icon, API Keys dialog
+
+### Changed
+- Default Deepgram model upgraded from `nova-2` to `nova-3` — ~30% lower WER, sub-300 ms streaming, marginal cost increase (~$0.46/hr)
+
+### Fixed
+- Recording indicator invisible on multi-monitor setups — async repositioning never dispatched back to the Qt main thread because `QTimer.singleShot` was called from a plain Python worker; reverted to synchronous `_reposition()` before `show()`
+- Tray icon was empty / unrecognizable in GNOME — bundled the PNG/SVG assets into the package (`pyproject.toml` `package-data`), set `QIcon.fromTheme("f9-talk")` for AppIndicator extensions, set proper application name via `QApplication.setApplicationName("F9 Talk")`
+
+### Tests
+- Up to 109 unit tests (57 → 109): tray UI, app pause/provider/reload behavior, API Keys dialog, secrets file load/save, AssemblyAI/Gladia backends
+
+---
+
 ## [0.1.0] — 2026-05-08
 
 ### Added
-- System tray icon with active/paused visual states; left-click toggles, right-click menu has Pause/Resume + Quit. Pauses the F9 hotkey without stopping the app, so resume is instant
 - Hold-to-talk dictation via Deepgram Nova-2 cloud STT (~300 ms latency)
 - Local offline backend via faster-whisper (GPU required)
 - Audio-reactive overlay indicator with six animation styles: `wave`, `bars`, `pulse`, `dots`, `ripple`, `blob`
