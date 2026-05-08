@@ -67,7 +67,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          # `command: check` is the default; `command-arguments` lets us
-          # pass --all-features to it without confusing the action's
-          # arg parser.
-          command-arguments: "--all-features"
+          # `--all-features` is a *global* cargo-deny option that must
+          # appear BEFORE the `check` subcommand; the action's
+          # `arguments` slot inserts there. `command-arguments` would
+          # put it AFTER `check` which fails with "unexpected argument".
+          arguments: "--all-features"
