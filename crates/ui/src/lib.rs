@@ -10,6 +10,7 @@ pub mod positioning;
 pub mod tray;
 
 pub use indicator::{IndicatorApp, IndicatorState};
+pub use keys_dialog::{KeysDialogState, KeysSaved};
 pub use positioning::Positioner;
 pub use tray::{
     CloudProvider as TrayCloudProvider, TrayCommand, TrayHandle, VisualState as TrayVisualState,

@@ -10,6 +10,7 @@ use f9_talk_audio::RmsHandle;
 use parking_lot::Mutex;
 use tracing::warn;
 
+use crate::keys_dialog::{maybe_show_dialog, KeysDialogState};
 use crate::positioning::Positioner;
 
 /// Indicator runtime state shared with the app loop. The audio callback
@@ -52,10 +53,11 @@ pub struct IndicatorApp {
     anim_t0: Instant,
     positioner: Option<Positioner>,
     last_recording: bool,
+    keys_dialog: KeysDialogState,
 }
 
 impl IndicatorApp {
-    pub fn new(state: Arc<IndicatorState>) -> Self {
+    pub fn new(state: Arc<IndicatorState>, keys_dialog: KeysDialogState) -> Self {
         let positioner = match Positioner::new() {
             Ok(p) => Some(p),
             Err(e) => {
@@ -72,6 +74,7 @@ impl IndicatorApp {
             anim_t0: Instant::now(),
             positioner,
             last_recording: false,
+            keys_dialog,
         }
     }
 
@@ -110,6 +113,9 @@ impl eframe::App for IndicatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let recording = *self.state.recording.lock();
         let status = self.state.status_text.lock().clone();
+
+        // Render the keys dialog when requested by the tray.
+        maybe_show_dialog(ctx, &self.keys_dialog);
 
         self.maybe_reposition(ctx, recording);
 

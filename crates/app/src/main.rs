@@ -19,7 +19,8 @@ use clap::Parser;
 use f9_talk_input::{typer_preflight, HotkeyEvent, Typer};
 use f9_talk_stt::{BackendEvent, Stt};
 use f9_talk_ui::{
-    IndicatorApp, IndicatorState, TrayCloudProvider, TrayCommand, TrayHandle, TrayVisualState,
+    IndicatorApp, IndicatorState, KeysDialogState, TrayCloudProvider, TrayCommand, TrayHandle,
+    TrayVisualState,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -157,22 +158,26 @@ fn main() -> anyhow::Result<()> {
     };
     let tray_handle: Option<TrayHandle> = tray_bundle.as_ref().map(|(h, _)| h.clone());
 
+    let keys_dialog = KeysDialogState::new();
+
     let chord = cli.local_hotkey.clone();
     let cli_for_task = cli.clone();
     let secrets_for_task = secrets.clone();
     let state_for_task = indicator_state.clone();
     let tray_cmd_rx = tray_bundle.map(|(_, rx)| rx);
     let tray_handle_for_task = tray_handle.clone();
+    let keys_dialog_for_task = keys_dialog.clone();
     runtime.spawn(async move {
         if let Err(e) = run_session_loop(
             &chord,
             provider,
             &cli_for_task,
-            &secrets_for_task,
+            secrets_for_task,
             frame_rx,
             state_for_task,
             tray_cmd_rx,
             tray_handle_for_task,
+            keys_dialog_for_task,
         )
         .await
         {
@@ -213,10 +218,11 @@ fn main() -> anyhow::Result<()> {
     };
 
     let state_for_app = indicator_state.clone();
+    let keys_for_app = keys_dialog.clone();
     eframe::run_native(
         "f9-talk",
         native_options,
-        Box::new(move |_cc| Ok(Box::new(IndicatorApp::new(state_for_app)))),
+        Box::new(move |_cc| Ok(Box::new(IndicatorApp::new(state_for_app, keys_for_app)))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 
@@ -376,11 +382,12 @@ async fn run_session_loop(
     chord: &str,
     initial_provider: Option<CloudProvider>,
     cli: &Cli,
-    secrets: &HashMap<String, String>,
+    mut secrets: HashMap<String, String>,
     mut frame_rx: mpsc::Receiver<f9_talk_audio::Frame>,
     indicator: Arc<IndicatorState>,
     mut tray_cmd_rx: Option<mpsc::UnboundedReceiver<TrayCommand>>,
     tray_handle: Option<TrayHandle>,
+    keys_dialog: KeysDialogState,
 ) -> anyhow::Result<()> {
     let provider = initial_provider;
     let provider = match (cli.backend, provider) {
@@ -401,7 +408,7 @@ async fn run_session_loop(
         }
     };
 
-    let mut backend = build_cloud_backend(provider, secrets, &cli.keywords).await?;
+    let mut backend = build_cloud_backend(provider, &secrets, &cli.keywords).await?;
     let mut backend_name = backend.name();
     let mut active_provider = provider;
 
@@ -412,6 +419,12 @@ async fn run_session_loop(
         .map_err(|e| anyhow::anyhow!("could not start STT backend ({backend_name}): {e}"))?;
     info!("STT backend ready: {backend_name}");
     let mut paused = false;
+
+    // Poll the keys dialog for completed saves every 250 ms. (The
+    // dialog itself runs on the main thread; we just observe the
+    // pending_save flag here and react to it.)
+    let mut keys_save_tick = tokio::time::interval(Duration::from_millis(250));
+    keys_save_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let mut hotkey_rx = match f9_talk_input::spawn_hotkey(chord) {
         Ok(rx) => rx,
@@ -554,7 +567,7 @@ async fn run_session_loop(
                         }
                         info!("tray: switching cloud provider → {new_provider:?}");
                         backend.stop().await;
-                        match build_cloud_backend(new_provider, secrets, &cli.keywords).await {
+                        match build_cloud_backend(new_provider, &secrets, &cli.keywords).await {
                             Ok(new_backend) => {
                                 let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
                                 if let Err(e) = new_backend.start(new_tx).await {
@@ -579,16 +592,57 @@ async fn run_session_loop(
                         }
                     }
                     TrayCommand::EditKeys => {
-                        // M3 chunk 3 (egui keys dialog) hooks here.
-                        warn!(
-                            "tray: 'API Keys…' clicked — dialog UI lands in M3 chunk 3. \
-                             For now: edit ~/.config/F9_talk/secrets.env directly + restart"
-                        );
+                        let (cur_aai, cur_dg) = f9_talk_ui::keys_dialog::read_current_keys();
+                        keys_dialog.open(cur_aai, cur_dg);
+                        info!("tray: opening keys dialog");
                     }
                     TrayCommand::Quit => {
                         info!("tray: Quit");
                         backend.stop().await;
                         std::process::exit(0);
+                    }
+                }
+            }
+            _ = keys_save_tick.tick() => {
+                let Some(saved) = keys_dialog.take_pending_save() else { continue; };
+                if let Err(e) = f9_talk_ui::keys_dialog::save_to_disk(&saved) {
+                    warn!("could not write secrets.env: {e}");
+                    if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                    continue;
+                }
+                if let Some(v) = saved.assemblyai.as_ref() {
+                    if v.is_empty() { secrets.remove("ASSEMBLYAI_API_KEY"); }
+                    else { secrets.insert("ASSEMBLYAI_API_KEY".into(), v.clone()); }
+                }
+                if let Some(v) = saved.deepgram.as_ref() {
+                    if v.is_empty() { secrets.remove("DEEPGRAM_API_KEY"); }
+                    else { secrets.insert("DEEPGRAM_API_KEY".into(), v.clone()); }
+                }
+                let active_key_changed = match active_provider {
+                    CloudProvider::Assemblyai => saved.assemblyai.is_some(),
+                    CloudProvider::Deepgram => saved.deepgram.is_some(),
+                };
+                if active_key_changed {
+                    info!("active provider's key changed; rebuilding backend");
+                    backend.stop().await;
+                    match build_cloud_backend(active_provider, &secrets, &cli.keywords).await {
+                        Ok(new_backend) => {
+                            let (new_tx, new_rx) = mpsc::channel::<BackendEvent>(64);
+                            if let Err(e) = new_backend.start(new_tx).await {
+                                error!("backend rebuild failed: {e}");
+                                if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                            } else {
+                                backend = new_backend;
+                                backend_name = backend.name();
+                                event_rx = new_rx;
+                                info!("STT backend rebuilt ({backend_name})");
+                                if let Some(t) = tray_handle.as_ref() { t.set_error(false); }
+                            }
+                        }
+                        Err(e) => {
+                            error!("could not rebuild backend: {e}");
+                            if let Some(t) = tray_handle.as_ref() { t.set_error(true); }
+                        }
                     }
                 }
             }
