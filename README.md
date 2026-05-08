@@ -2,7 +2,7 @@
 
 > Hold a key. Speak. Release. Text appears at your cursor.
 
-System-wide hold-to-talk dictation for Linux. Works in any focused application — browser, editor, terminal, anything that takes typed input — under any keyboard layout.
+System-wide hold-to-talk dictation for Linux. Works in every text field — browser, terminal, IDE, Slack, anywhere — under any keyboard layout. Default backend is **Deepgram Nova-3** streaming; an offline **whisper.cpp** backend is one flag away if you'd rather not depend on a cloud.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/moamen1358/F9_talk?label=release)](https://github.com/moamen1358/F9_talk/releases/latest)
@@ -10,38 +10,40 @@ System-wide hold-to-talk dictation for Linux. Works in any focused application �
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://rustup.rs)
 
 ```
-F9 ↓  →  🎙   Listening (audio-reactive overlay over your focused window)
-F9 ↑  →  ⌨    Text appears at cursor   (~250–300 ms with Deepgram Nova-3)
+F9 ↓  →  🎙   Listening   (audio-reactive overlay over your focused window)
+F9 ↑  →  ⌨    Typing      (~250–300 ms with Deepgram Nova-3)
 ```
 
-> ⚠️ **Linux only.** v0.4 is Rust + X11. Wayland-compositor support requires layer-shell (sway/hypr) and is not yet wired up. Pop!_OS / Ubuntu / Fedora on X11 work out of the box.
+> ⚠️ **Linux only.** X11 is fully supported; Wayland needs layer-shell (sway / hyprland) and isn't wired up yet. Pop!_OS / Ubuntu / Fedora on X11 work out of the box.
+
+## Highlights
+
+- **Drops into any app** — types straight into the focused field; works under Arabic / Cyrillic / any keyboard layout.
+- **Cloud or offline** — Deepgram Nova-3 streaming by default; `--backend local` for offline whisper.cpp (CUDA optional).
+- **Real-time translation** — speak English, type Arabic (or any pair Lingva / MyMemory supports).
+- **Stays out of your way** — wave overlay only paints while you hold the key, then disappears.
+- **Self-healing** — auto-reconnect on WS / mic / suspend events.
 
 ---
 
-## Install
+## Quick start
 
-**[→ Download the latest .deb release](https://github.com/moamen1358/F9_talk/releases/latest)**
+**1. Install the `.deb`**
+
+[→ Download the latest release](https://github.com/moamen1358/F9_talk/releases/latest)
 
 ```bash
 sudo dpkg -i f9-talk_*.deb
-sudo apt-get install -f          # fills in any missing system deps
+sudo apt-get install -f          # fills any missing system deps
 ```
 
-The .deb does three things:
+The package drops the binary at `/usr/bin/f9-talk`, adds you to the `input` group, installs the udev rule for `/dev/uinput`, and registers an autostart entry.
 
-1. Drops the binary at `/usr/bin/f9-talk` (12 MB).
-2. Adds you to the `input` group (needed for the kernel-level hotkey + uinput typer).
-3. Installs the udev rule for `/dev/uinput` so the typer can write without sudo.
+**2. Log out and log back in once.** Required so the input-group membership and udev rule take effect in your GUI session.
 
-**Log out and log back in once** for the input-group membership and the udev rule to take effect, then f9-talk launches automatically. The tray icon appears top-right; right-click → **API Keys…** to paste a key.
+**3. Paste your Deepgram API key.** Right-click the tray icon → **API Keys…**. Get one free at [console.deepgram.com](https://console.deepgram.com/signup) ($200 starting credit covers personal use comfortably).
 
----
-
-## Use it
-
-Hold **F9**, speak, release. The wave overlay anchors itself to your focused window while you hold; the transcript types itself at your cursor when you release.
-
-That's it. No menus, no shortcuts.
+**4. Hold F9, speak, release.** That's the whole UI. The transcript types itself at your cursor.
 
 ---
 
@@ -49,45 +51,12 @@ That's it. No menus, no shortcuts.
 
 | Action | Result |
 |---|---|
-| **Left-click** | Pause / resume the F9 hotkey (icon dims when paused) |
-| **Right-click → Pause / Resume listening** | Same as left-click |
-| **Right-click → API Keys…** | Paste your Deepgram key; saving hot-reloads the active backend |
-| **Right-click → Quit** | Exit |
+| Left-click | Pause / resume the F9 hotkey (icon dims when paused) |
+| Right-click → **Pause / Resume listening** | Same as left-click |
+| Right-click → **API Keys…** | Paste your Deepgram key; saving hot-reloads the backend |
+| Right-click → **Quit** | Exit |
 
 Three icon states: **active** (full colour), **paused** (desaturated 50 % alpha), **error** (red tint, set after a failed session, cleared on the next successful one).
-
----
-
-## Cloud STT — Deepgram Nova-3
-
-f9-talk uses [Deepgram Nova-3](https://deepgram.com/) streaming over a persistent WebSocket. Latency is ~250–300 ms from F9 release to typed text on a warm connection. Free tier ($200 in starting credit) is plenty for personal use.
-
-Get a key at [console.deepgram.com](https://console.deepgram.com/signup) and either drop it in `~/.config/F9_talk/secrets.env`:
-
-```bash
-DEEPGRAM_API_KEY=your-key-here
-```
-
-…or paste it via the tray's **API Keys…** dialog (saves to the same file with `0600` perms).
-
-If you'd rather not depend on a cloud, use `--backend local` for offline whisper.cpp.
-
----
-
-## Features
-
-- **Any application** — browser, terminal, IDE, Slack, any text field.
-- **Multi-monitor smart positioning** — the wave overlay snaps to the bottom of whichever window has focus, on whichever monitor it's on.
-- **Layout-independent typing** — uses `xdotool` keysym-level injection, so dictation works even when you're typing under an Arabic / Cyrillic / etc. layout.
-- **Cloud (Deepgram Nova-3) or local (whisper.cpp)** — pick at startup with `--backend cloud|local`. `--features cuda` for GPU on the local backend.
-- **Real-time translation** — speak English, type Arabic (or any Lingva / MyMemory pair).
-- **Audio-reactive indicator** — 56-point Bézier wave with four-layer paint, RMS-driven amplitude.
-- **Auto-reconnect** — WS closes are recovered transparently with exponential backoff (1 s → 30 s cap).
-- **Mic auto-restart** — if PipeWire/PulseAudio restarts, cpal reopens the stream and you keep dictating.
-- **Wake-from-suspend detection** — long sleeps trigger explicit reconnects so the first F9 press after wake works.
-- **Custom hotkey** — any chord, e.g. `<ctrl>+<alt>+space`.
-- **Single-instance lock** — abstract Unix socket prevents duplicate processes.
-- **Per-press tracing** — one line per F9 in `journalctl --user -t f9-talk` with `press_to_release`, `first_byte_sent`, `release_to_final`, `transcript`.
 
 ---
 
@@ -95,19 +64,19 @@ If you'd rather not depend on a cloud, use `--backend local` for offline whisper
 
 | Command | Description |
 |---|---|
-| `f9-talk` | Deepgram cloud STT, type at cursor |
+| `f9-talk` | Cloud STT, type at cursor (default) |
+| `f9-talk --backend local` | Offline whisper.cpp; downloads `ggml-large-v3-turbo.bin` on first press |
 | `f9-talk --target ar` | Speak English → type Arabic |
-| `f9-talk --keyword Anthropic --keyword kubectl` | Boost recognition of custom terms |
-| `f9-talk --backend local` | Offline whisper.cpp (lazy-downloads `ggml-large-v3-turbo.bin` on first press) |
-| `f9-talk --local-hotkey '<ctrl>+<alt>+space'` | Custom hotkey |
-| `f9-talk --headless` | No indicator window — pure CLI mode (still uses the tray) |
-| `f9-talk -v` | Verbose / debug output |
+| `f9-talk --keyword Anthropic --keyword kubectl` | Bias recognition toward custom terms |
+| `f9-talk --local-hotkey '<ctrl>+<alt>+space'` | Custom hotkey chord |
+| `f9-talk --headless` | No indicator window (still uses the tray) |
+| `f9-talk -v` | Verbose / debug logging |
 
-To make any option permanent, edit the autostart entry:
+To make any flag permanent, edit the autostart entry:
 
 ```bash
 sudo nano /etc/xdg/autostart/f9-talk.desktop
-# update the Exec= line, e.g.:
+# Update the Exec= line, e.g.:
 #   Exec=f9-talk --target ar
 ```
 
@@ -119,7 +88,7 @@ sudo nano /etc/xdg/autostart/f9-talk.desktop
 git clone https://github.com/moamen1358/f9-talk.git
 cd f9-talk
 
-# Rust toolchain (rustup); skip if already installed
+# Rust toolchain (skip if already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # Linux build deps
@@ -133,14 +102,32 @@ cargo build --release
 ./target/release/f9-talk --help
 ```
 
-For local Whisper with CUDA acceleration:
+### Run during development
+
+`run.sh` is a thin wrapper that rebuilds on demand and works around the `input`-group session issue (see Troubleshooting). Use it instead of reinstalling the `.deb` on every change.
+
+```bash
+./run.sh                       # launch the existing release binary
+./run.sh --build               # rebuild first, then launch
+./run.sh -v                    # pass -v through to f9-talk
+./run.sh --target ar           # or any other f9-talk flag
+```
+
+What it does, in order:
+
+1. `cd` to the repo root, regardless of where you call it from.
+2. `cargo build --release` if `--build` is passed or the binary doesn't exist.
+3. `pkill -f 'f9-talk$'` so the abstract-socket lock doesn't reject the new process.
+4. `exec sg input -c "RUST_LOG=info ./target/release/f9-talk …"` so the binary runs with the `input` group active even if your GUI shell doesn't have it yet.
+
+### Local Whisper with CUDA
 
 ```bash
 sudo apt install nvidia-cuda-toolkit
 cargo build --release --features cuda
 ```
 
-To rebuild the `.deb`:
+### Rebuild the `.deb`
 
 ```bash
 cargo install cargo-deb
@@ -152,7 +139,7 @@ sudo dpkg -i target/debian/f9-talk_*.deb
 
 ## Architecture
 
-Single statically-linked Rust binary. Three thread categories:
+Single statically-linked Rust binary. Three thread categories cooperate:
 
 ```
 main thread (winit/eframe)             tokio runtime workers              cpal callback (RT)
@@ -169,10 +156,10 @@ ViewportApp::update                  ┌─ hotkey-listener task  ─┐        
   │                                  │   - backend events      │
   │                                  └────────┬────────────────┘
   │                                           │
-  │                                  ┌── STT WS clients ──┐
+  │                                  ┌── STT WS client ───┐
   │                                  │   tokio-tungstenite│
-  │                                  │   one task per     │ ◄── frame_rx → send_audio()
-  │                                  │   active backend   │     end_session() → oneshot
+  │                                  │   Deepgram Nova-3  │ ◄── frame_rx → send_audio()
+  │                                  │   (or local Whisper)│   end_session() → oneshot
   │                                  └────────────────────┘
   │
   ▼
@@ -180,66 +167,53 @@ GTK thread (tray-icon)
   gtk::main() loop, MenuEvent → tokio mpsc
 ```
 
-**Data flow on a press**:
-
-1. `evdev` event for `F9` press → `hotkey-listener` → tokio mpsc → session loop.
-2. Session loop calls `backend.begin_session()` and flips `IndicatorState.recording = true`.
-3. Indicator window switches `Visible(true)`, queries X11 for the focused-window geometry, sends `OuterPosition` for 5 frames so cross-monitor moves stick.
-4. cpal pushes audio into the mpsc; session loop forwards every 25 ms frame to `backend.send_audio()`.
-5. Backend WS client streams raw int16 PCM at 16 kHz.
-6. On release: session loop calls `backend.end_session(350 ms)`. A fresh `oneshot::Sender<()>` is installed; the message handler `take()`s it on the first `is_final` after `recording=false`.
-7. Returned transcript → optional translation (Lingva/MyMemory) → typer.
-8. Typer prefers `xdotool type` (keysym-level, layout-independent), falls back to clipboard + Ctrl+V via uinput, falls back to raw scancode synthesis.
-9. Indicator goes `Visible(false)`.
-
 **Crates** (workspace under `crates/`):
 
 | Crate | Role |
 |---|---|
-| `f9-talk-core` | Shared constants — frame size, sample rate, channel capacity. |
-| `f9-talk-input` | `hotkey-listener` integration with chord parsing + 50 ms auto-repeat debounce, plus the typer (xdotool / clipboard / uinput). |
-| `f9-talk-audio` | cpal mic streamer, linear resampler, RMS for the indicator. |
-| `f9-talk-stt` | `Stt` trait + Deepgram Nova-3 streaming, whisper.cpp local. |
-| `f9-talk-ui` | egui `IndicatorApp`, `tray-icon` tray, keys dialog, X11 positioner. |
+| `f9-talk-core` | Shared constants (frame size, sample rate, channel capacity). |
+| `f9-talk-input` | `hotkey-listener` chord parser + 50 ms auto-repeat debounce; typer (xdotool / clipboard / uinput). |
+| `f9-talk-audio` | cpal mic streamer with linear resampler and RMS for the wave indicator. |
+| `f9-talk-stt` | `Stt` trait + Deepgram Nova-3 streaming client + whisper.cpp local backend. |
+| `f9-talk-ui` | egui indicator viewport, tray icon, API-keys dialog, X11 positioner. |
 | `f9-talk-translate` | Lingva (primary) + MyMemory (fallback) HTTP client. |
 | `f9-talk` (bin) | clap CLI + secrets loader + abstract-socket lock + glue. |
 
-**Reliability features baked in**:
+**Reliability features baked in:**
 
-- **WS auto-reconnect** on close + on three consecutive send failures (1 s → 30 s exponential backoff).
-- **Mic auto-restart** on cpal stream errors (same backoff).
-- **Wake-from-suspend detection** via 5 s `Instant::now()` polling; >30 s drift broadcasts a `WakeUp` so STT clients reconnect.
-- **Permission preflight** at startup; missing `input` group / `/dev/uinput` access prints actionable instructions and exits non-zero.
-- **Single-instance lock** on abstract Unix socket `\0f9-talk-instance-lock` — same name as the v0.3 Python build, so they can't run simultaneously.
+- WS auto-reconnect on socket close + on three consecutive send failures. Backoff resets after a healthy connection drops, so a network blip after an hour of uptime reconnects in 1 s instead of the 30 s cap.
+- Mic auto-restart on cpal stream errors with the same backoff.
+- Wake-from-suspend detection: 5 s polling spots clock drift > 30 s and broadcasts a `WakeUp` so the STT client reconnects.
+- Permission preflight at startup; missing `input` group or `/dev/uinput` access prints actionable instructions and exits non-zero.
+- Single-instance lock on the abstract Unix socket `\0f9-talk-instance-lock`.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
+| Symptom | Fix |
 |---|---|
-| `/dev/uinput is not writable` | `sudo usermod -aG input "$USER"`, then log out + back in |
-| Tray icon invisible (vanilla GNOME) | `sudo apt install gnome-shell-extension-appindicator` (Pop!_OS / Ubuntu have it already) |
-| Indicator window has a title bar | This was a v0.4-rc bug — make sure you're on `0.4.0+` (with `X11WindowType::Notification`) |
-| `no speech detected` | Held F9 too briefly — speak for at least 0.3 s |
-| Wrong characters typed under non-en-US layout | Confirm `which xdotool` returns a path; the typer logs `primary=xdotool` at startup |
-| App won't start — "already running" | `pkill -f /usr/bin/f9-talk` then relaunch |
-| `wgpu` panics at startup | The shipped builds use the `glow` (OpenGL) renderer; CUDA + wgpu mixing isn't supported |
+| `/dev/uinput is not writable` / "no keyboards found" | The `.deb` adds you to the `input` group, but the GUI session needs to be restarted. **Log out and log back in once.** Until then, run via `./run.sh`. |
+| Tray icon invisible (vanilla GNOME) | `sudo apt install gnome-shell-extension-appindicator`. (Pop!_OS / Ubuntu / KDE / COSMIC have native support.) |
+| `no speech detected` | You released F9 too fast. Hold for at least 0.3 s. |
+| Wrong characters under non-en-US layout | Make sure `which xdotool` returns a path; the typer logs `primary=xdotool` at startup. |
+| "Already running" with no visible window | `pkill -f /usr/bin/f9-talk` and relaunch. |
+| `wgpu` panic at startup | The shipped binary uses the OpenGL `glow` renderer; don't mix CUDA and wgpu in custom builds. |
 
-Logs: `journalctl --user -t f9-talk -f`. Per-press latency lines have target `f9_talk::press`.
+Logs: `journalctl --user -t f9-talk -f`. Per-press latency lines have the target `f9_talk::press`.
 
 ---
 
 ## Requirements
 
-| Requirement | Notes |
+| | Notes |
 |---|---|
-| Linux + X11 | Wayland with layer-shell (sway/hyprland) is post-v0.4 |
-| Recent kernel (≥5.4) | `uinput` + `evdev` |
-| `xdotool` installed | Auto-installed by the .deb; required for layout-independent typing |
-| Membership in `input` group | The .deb postinst adds you; you must log out + back in once |
-| Deepgram API key | Free tier at [console.deepgram.com](https://console.deepgram.com/signup); not needed if you use `--backend local` |
-| NVIDIA GPU *(optional)* | Local Whisper with `--features cuda` |
+| **Linux + X11** | Wayland with layer-shell (sway / hyprland) is on the roadmap. |
+| **Kernel ≥ 5.4** | For `uinput` + `evdev`. |
+| **`xdotool`** | Auto-installed by the `.deb`; required for layout-independent typing. |
+| **`input` group membership** | Added by the `.deb` postinst; one logout/login is required to take effect. |
+| **Deepgram API key** | Free tier at [console.deepgram.com](https://console.deepgram.com/signup). Skip if you only use `--backend local`. |
+| **NVIDIA GPU** *(optional)* | For local Whisper with `--features cuda`. |
 
 ---
 
