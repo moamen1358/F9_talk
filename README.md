@@ -1,11 +1,16 @@
+<p align="center">
+  <img src="assets/f9-talk.png" alt="f9-talk" width="96" />
+</p>
+
 # f9-talk
 
 f9-talk is a system-wide hold-to-talk dictation tool for Linux. The user
 holds a hotkey, speaks, and releases; the transcribed text is typed into
-the focused window via `xdotool`, regardless of application or keyboard
-layout. The default backend is Deepgram Nova-3 streaming over WebSocket.
-An offline whisper.cpp backend with optional CUDA support is available
-behind a flag.
+the focused window via `xdotool` for ASCII characters and through the
+clipboard for non-ASCII layouts. The default backend is Deepgram Nova-3
+streaming over WebSocket. An offline whisper.cpp backend with optional
+CUDA support is available behind a flag, and a `both` mode runs the
+two side-by-side for comparison.
 
 The project ships as a single statically-linked Rust binary distributed
 as a `.deb` package. It is currently Linux-only and X11-only; Wayland
@@ -62,6 +67,7 @@ cleared on the next successful one).
 |---|---|
 | `f9-talk` | Cloud STT, types at the cursor (default) |
 | `f9-talk --backend local` | Offline whisper.cpp; downloads `ggml-large-v3-turbo.bin` on first press |
+| `f9-talk --backend both` | Run cloud and local STT in parallel; useful for comparing accuracy |
 | `f9-talk --target ar` | Translates English to Arabic before typing |
 | `f9-talk --keyword Anthropic --keyword kubectl` | Biases recognition toward custom terms |
 | `f9-talk --local-hotkey '<ctrl>+<alt>+space'` | Custom hotkey chord |
