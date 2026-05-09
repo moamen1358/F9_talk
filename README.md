@@ -4,6 +4,8 @@
 
 # f9-talk
 
+[![Rust](https://img.shields.io/badge/Rust-1.78%2B-CE422B?logo=rust&logoColor=white)](https://www.rust-lang.org/) [![Platform](https://img.shields.io/badge/Platform-Linux%20%2B%20X11-FCC624?logo=linux&logoColor=black)](https://www.linux.org/) [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Hold-to-talk dictation for Linux. Press F9, speak, release — the
 transcript types itself into whatever app you're focused on. Works
 system-wide, on any text field. The default backend is Deepgram
