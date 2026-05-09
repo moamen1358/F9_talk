@@ -14,15 +14,31 @@ Linux + X11 only for now.
 
 ## Install
 
-[Download the latest release](https://github.com/moamen1358/f9-talk/releases/latest) and install:
+Easiest path — install the prebuilt `.deb`:
 
 ```bash
+# Download from https://github.com/moamen1358/f9-talk/releases/latest
 sudo dpkg -i f9-talk_*.deb
 sudo apt-get install -f
 ```
 
-Log out and back in once so the `input` group membership takes effect.
-Then right-click the tray icon → **API Keys…** and paste a Deepgram key
+Or run directly from this repo:
+
+```bash
+git clone https://github.com/moamen1358/f9-talk.git
+cd f9-talk
+
+# One-time: Rust toolchain + Linux build deps (see docs/architecture.md
+# for the full apt install line)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Build and launch (run.sh handles the input-group session quirk)
+./run.sh --build
+```
+
+After install (either path), log out and back in once so the `input`
+group membership takes effect, then right-click the tray icon →
+**API Keys…** and paste a Deepgram key
 ([free tier here](https://console.deepgram.com/signup)).
 
 ## Use
