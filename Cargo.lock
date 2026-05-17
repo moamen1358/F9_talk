@@ -1142,6 +1142,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
+ "dirs",
  "eframe",
  "egui",
  "f9-talk-audio",
@@ -1193,6 +1194,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1201,6 +1203,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "dirs",
  "f9-talk-audio",
  "f9-talk-core",
  "futures-util",
@@ -1236,6 +1239,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
+ "dirs",
  "eframe",
  "egui",
  "egui_extras",

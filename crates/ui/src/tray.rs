@@ -1,16 +1,9 @@
 //! System-tray icon with three visual states (active / paused / error)
 //! and the right-click menu (Pause/Resume + Edit API Keys + Quit).
 //!
-//! Threading:
-//! - Lives on a dedicated `f9-talk-tray` thread because `tray-icon` on
-//!   Linux requires GTK and GTK's main loop is blocking.
-//! - The tray thread runs `gtk::main()`. A small forwarder thread
-//!   reads `tray_icon::menu::MenuEvent::receiver()` (a global crossbeam
-//!   channel) and posts [`TrayCommand`] values into a tokio
-//!   `mpsc::UnboundedSender<TrayCommand>` the app loop owns.
-//! - State updates from the app (set_paused / set_error) are forwarded
-//!   into the tray thread through a glib idle-callback so all GTK
-//!   calls stay on the GTK thread.
+//! On Linux the tray thread runs `gtk::main()` and uses `glib` timers
+//! for state refresh. On macOS / Windows we use a simple polling loop
+//! instead (no GTK dependency).
 
 use std::sync::Arc;
 
@@ -41,7 +34,7 @@ pub struct VisualState {
 
 /// Public handle returned to the app for runtime mutations. All
 /// methods are non-blocking: they update an `Arc<Mutex<…>>` that the
-/// GTK thread reads in a glib timeout. Worst-case lag ≈ 50 ms.
+/// tray thread reads in a periodic callback. Worst-case lag ≈ 50 ms.
 #[derive(Clone)]
 pub struct TrayHandle {
     state: Arc<Mutex<VisualState>>,
@@ -87,6 +80,8 @@ pub fn spawn(
     Ok((TrayHandle { state, dirty }, cmd_rx))
 }
 
+// ── Linux tray thread (GTK main loop) ──────────────────────────────
+#[cfg(target_os = "linux")]
 fn run_tray_thread(
     state: Arc<Mutex<VisualState>>,
     dirty: Arc<Mutex<bool>>,
@@ -142,7 +137,6 @@ fn run_tray_thread(
     };
     info!("tray icon ready");
 
-    // Forward MenuEvents (global crossbeam channel) to the tokio mpsc.
     let pause_id = pause_item.id().clone();
     let keys_id = keys_item.id().clone();
     let quit_id = quit_item.id().clone();
@@ -156,8 +150,6 @@ fn run_tray_thread(
         },
     );
 
-    // glib timeout to refresh icon/tooltip/menu-checks when state.dirty
-    // is set by the handle. Cheap (no work when `dirty == false`).
     let state_for_tick = state.clone();
     let dirty_for_tick = dirty;
     let icons_for_tick = icons;
@@ -191,8 +183,6 @@ fn run_tray_thread(
         });
         pause_for_tick.set_checked(s.paused);
 
-        // Sync indicator pause state too (so the wave doesn't paint
-        // when the user hits Pause from the tray).
         if s.paused {
             indicator.set_recording(false);
         }
@@ -201,6 +191,108 @@ fn run_tray_thread(
     });
 
     gtk::main();
+}
+
+// ── macOS / Windows tray thread (polling loop) ─────────────────────
+#[cfg(not(target_os = "linux"))]
+fn run_tray_thread(
+    state: Arc<Mutex<VisualState>>,
+    dirty: Arc<Mutex<bool>>,
+    cmd_tx: mpsc::UnboundedSender<TrayCommand>,
+    indicator: Arc<IndicatorState>,
+) {
+    let icons = match Icons::load() {
+        Ok(i) => i,
+        Err(e) => {
+            warn!("could not decode tray icon: {e}; using a 1×1 placeholder");
+            Icons::placeholder()
+        }
+    };
+
+    let pause_item = CheckMenuItem::new(
+        if state.lock().paused {
+            "Resume listening"
+        } else {
+            "Pause listening"
+        },
+        true,
+        state.lock().paused,
+        None,
+    );
+    let keys_item = tray_icon::menu::MenuItem::new("API Keys…", true, None);
+    let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
+    let sep = PredefinedMenuItem::separator();
+    let menu = Menu::with_items(&[
+        &pause_item as &dyn IsMenuItem,
+        &sep as &dyn IsMenuItem,
+        &keys_item as &dyn IsMenuItem,
+        &sep as &dyn IsMenuItem,
+        &quit_item as &dyn IsMenuItem,
+    ])
+    .expect("menu build");
+
+    let tray = match TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("F9 Talk — listening")
+        .with_icon(icons.active.clone())
+        .build()
+    {
+        Ok(t) => t,
+        Err(e) => {
+            error!("tray-icon build failed: {e}");
+            return;
+        }
+    };
+    info!("tray icon ready");
+
+    let pause_id = pause_item.id().clone();
+    let keys_id = keys_item.id().clone();
+    let quit_id = quit_item.id().clone();
+    spawn_menu_forwarder(
+        cmd_tx.clone(),
+        state.clone(),
+        Ids {
+            pause: pause_id,
+            keys: keys_id,
+            quit: quit_id,
+        },
+    );
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        if !*dirty.lock() {
+            continue;
+        }
+        *dirty.lock() = false;
+
+        let s = state.lock().clone();
+        let icon = if s.error {
+            &icons.error
+        } else if s.paused {
+            &icons.paused
+        } else {
+            &icons.active
+        };
+        let _ = tray.set_icon(Some(icon.clone()));
+        let tooltip = match (s.paused, s.error) {
+            (true, _) => "F9 Talk — paused",
+            (false, true) => "F9 Talk — last session failed",
+            (false, false) => "F9 Talk — listening",
+        };
+        let _ = tray.set_tooltip(Some(tooltip));
+
+        pause_item.set_text(if s.paused {
+            "Resume listening"
+        } else {
+            "Pause listening"
+        });
+        pause_item.set_checked(s.paused);
+
+        if s.paused {
+            indicator.set_recording(false);
+        }
+    }
 }
 
 struct Ids {
@@ -251,7 +343,6 @@ impl Icons {
     fn load() -> anyhow::Result<Self> {
         let img = image::load_from_memory(ICON_BYTES)?.to_rgba8();
         let (w, h) = img.dimensions();
-        // Resize down to 32×32 — most desktop trays render at 16-22 px.
         let small = image::imageops::resize(&img, 32, 32, image::imageops::FilterType::Lanczos3);
         let active = Icon::from_rgba(small.clone().into_raw(), 32, 32)?;
         let paused = Icon::from_rgba(desaturate(&small).into_raw(), 32, 32)?;
@@ -274,24 +365,21 @@ impl Icons {
     }
 }
 
-/// Pixel-level desaturation matching the legacy Python implementation.
 fn desaturate(rgba: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>) -> image::RgbaImage {
     let mut out = rgba.clone();
     for p in out.pixels_mut() {
         let [r, g, b, a] = p.0;
         let gray = (0.30 * r as f32 + 0.59 * g as f32 + 0.11 * b as f32) as u8;
-        let a = (a as f32 * 0.5) as u8; // 50% opacity
+        let a = (a as f32 * 0.5) as u8;
         p.0 = [gray, gray, gray, a];
     }
     out
 }
 
-/// Pixel-level red-tint matching the legacy Python implementation.
 fn red_tint(rgba: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>) -> image::RgbaImage {
     let mut out = rgba.clone();
     for p in out.pixels_mut() {
         let [r, _g, _b, a] = p.0;
-        // Push toward red; keep alpha for shape preservation.
         p.0 = [r.saturating_add(60), 30, 40, a];
     }
     out

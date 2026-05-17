@@ -1,6 +1,6 @@
-//! Hotkey listener (chord parser + push-to-talk events) and uinput typer.
+//! Hotkey listener (chord parser + push-to-talk events) and text typer.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(not(target_os = "windows"), forbid(unsafe_code))]
 
 pub mod hotkey;
 pub mod typer;

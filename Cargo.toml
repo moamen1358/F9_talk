@@ -18,7 +18,7 @@ authors = ["Moamen Ghareeb <moamen.ghareeb.11@gmail.com>"]
 license = "MIT"
 homepage = "https://github.com/moamen1358/F9_talk"
 repository = "https://github.com/moamen1358/F9_talk"
-description = "Hold-to-talk system-wide dictation for Linux"
+description = "Hold-to-talk system-wide dictation"
 
 [workspace.dependencies]
 # Async + utilities
@@ -42,6 +42,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 url = "2"
 
+# Cross-platform paths
+dirs = "6"
+
 # Audio + input
 cpal = "0.17"
 hotkey-listener = "0.3"
@@ -53,16 +56,16 @@ arboard = "3"
 # STT (local)
 # whisper-rs is gated behind the `cuda` feature in the stt crate.
 
-# UI
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "x11"] }
+# UI (cross-platform)
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow"] }
 egui = "0.32"
 egui_extras = "0.32"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tray-icon = "0.21"
+
+# UI (Linux-only)
 gtk = "0.18"
 glib = "0.18"
-
-# X11 helpers
 x11rb = "0.13"
 
 [profile.release]

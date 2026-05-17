@@ -86,10 +86,8 @@ impl WhisperLocal {
 }
 
 pub fn model_cache_path() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".cache/f9-talk/models").join(MODEL_FILE)
+    let cache = dirs::cache_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    cache.join("f9-talk").join("models").join(MODEL_FILE)
 }
 
 #[async_trait]
