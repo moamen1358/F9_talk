@@ -42,20 +42,14 @@ mod x11_impl {
             })
         }
 
-        pub fn compute_position(
-            &self,
-            indicator_w: i32,
-            indicator_h: i32,
-        ) -> Option<(i32, i32)> {
+        pub fn compute_position(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
             let started = Instant::now();
             let screen_size = self.screen_size();
 
             let (raw_x, raw_y) = self
                 .focused_window_bottom(indicator_w, indicator_h)
                 .or_else(|| self.cursor_above(indicator_w, indicator_h))
-                .or_else(|| {
-                    self.screen_center_bottom(indicator_w, indicator_h, screen_size)
-                })?;
+                .or_else(|| self.screen_center_bottom(indicator_w, indicator_h, screen_size))?;
 
             let pos = clamp_to_screen(raw_x, raw_y, indicator_w, indicator_h, screen_size);
 
@@ -87,14 +81,7 @@ mod x11_impl {
             let root = self.root_window()?;
             let cookie = self
                 .conn
-                .get_property(
-                    false,
-                    root,
-                    self.net_active_window,
-                    AtomEnum::WINDOW,
-                    0,
-                    1,
-                )
+                .get_property(false, root, self.net_active_window, AtomEnum::WINDOW, 0, 1)
                 .ok()?;
             let reply = cookie.reply().ok()?;
             let mut iter = reply.value32()?;
@@ -106,11 +93,7 @@ mod x11_impl {
             }
         }
 
-        fn focused_window_bottom(
-            &self,
-            indicator_w: i32,
-            indicator_h: i32,
-        ) -> Option<(i32, i32)> {
+        fn focused_window_bottom(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
             let win = self.active_window()?;
             let root = self.root_window()?;
             let geom = self.conn.get_geometry(win).ok()?.reply().ok()?;
@@ -136,11 +119,7 @@ mod x11_impl {
             Some((x, y))
         }
 
-        fn cursor_above(
-            &self,
-            indicator_w: i32,
-            indicator_h: i32,
-        ) -> Option<(i32, i32)> {
+        fn cursor_above(&self, indicator_w: i32, indicator_h: i32) -> Option<(i32, i32)> {
             let root = self.root_window()?;
             let p = self.conn.query_pointer(root).ok()?.reply().ok()?;
             let x = p.root_x as i32 - indicator_w / 2;
@@ -163,13 +142,7 @@ mod x11_impl {
         }
     }
 
-    fn clamp_to_screen(
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        screen: Option<(i32, i32)>,
-    ) -> (i32, i32) {
+    fn clamp_to_screen(x: i32, y: i32, w: i32, h: i32, screen: Option<(i32, i32)>) -> (i32, i32) {
         let (sw, sh) = match screen {
             Some(s) => s,
             None => return (x, y),
@@ -195,17 +168,13 @@ mod fallback_impl {
             Ok(Self)
         }
 
-        pub fn compute_position(
-            &self,
-            _indicator_w: i32,
-            _indicator_h: i32,
-        ) -> Option<(i32, i32)> {
+        pub fn compute_position(&self, _indicator_w: i32, _indicator_h: i32) -> Option<(i32, i32)> {
             None
         }
     }
 }
 
-#[cfg(target_os = "linux")]
-pub use x11_impl::Positioner;
 #[cfg(not(target_os = "linux"))]
 pub use fallback_impl::Positioner;
+#[cfg(target_os = "linux")]
+pub use x11_impl::Positioner;

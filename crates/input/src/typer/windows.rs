@@ -44,7 +44,10 @@ impl Typer {
 
         cb.set_text(text)
             .map_err(|e| anyhow::anyhow!("clipboard set_text failed: {e}"))?;
-        debug!("clipboard set ({} chars); sending Ctrl+V via SendInput", text.len());
+        debug!(
+            "clipboard set ({} chars); sending Ctrl+V via SendInput",
+            text.len()
+        );
 
         sleep(std::time::Duration::from_millis(50));
 
@@ -56,8 +59,7 @@ impl Typer {
 /// Simulate Ctrl+V via the Win32 SendInput API.
 fn send_ctrl_v() {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-        VK_CONTROL, VK_V,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
     };
 
     let mut inputs: [INPUT; 4] = unsafe { std::mem::zeroed() };
