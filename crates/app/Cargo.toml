@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "F9 Talk: hold-to-talk dictation."
+repository = "https://github.com/moamen1358/f9-talk"
 
 [[bin]]
 name = "f9-talk"
