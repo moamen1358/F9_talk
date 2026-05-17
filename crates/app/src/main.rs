@@ -182,12 +182,15 @@ fn main() -> anyhow::Result<()> {
         .with_always_on_top()
         .with_resizable(false)
         .with_taskbar(false)
-        .with_mouse_passthrough(true)
-        .with_window_type(egui::X11WindowType::Notification)
-        // Start hidden — IndicatorApp toggles visibility on the
-        // rising/falling edge of `recording`/status_text so users
-        // only see the indicator while F9 is held.
-        .with_visible(false);
+        .with_mouse_passthrough(true);
+    #[cfg(target_os = "linux")]
+    {
+        viewport = viewport.with_window_type(egui::X11WindowType::Notification);
+    }
+    // Start hidden — IndicatorApp toggles visibility on the
+    // rising/falling edge of `recording`/status_text so users
+    // only see the indicator while F9 is held.
+    viewport = viewport.with_visible(false);
     // Pre-compute initial position so the first frame doesn't flash at
     // the eframe default before maybe_reposition runs on the first press.
     if let Ok(pos) = f9_talk_ui::Positioner::new() {
