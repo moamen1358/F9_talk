@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "F9 Talk: hold-to-talk dictation for Linux."
+description = "F9 Talk: hold-to-talk dictation."
 
 [[bin]]
 name = "f9-talk"
@@ -28,16 +28,17 @@ f9-talk-translate = { path = "../translate" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-journald = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
-libc = "0.2"
-# Direct eframe + egui deps for the indicator viewport / NativeOptions.
+dirs = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
-# rustls 0.23 requires an explicit CryptoProvider install at startup
-# when used through tokio-tungstenite's rustls-tls-native-roots feature.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tracing-journald = { workspace = true }
+libc = "0.2"
+eframe = { workspace = true, features = ["x11"] }
 
 [package.metadata.deb]
 name = "f9-talk"

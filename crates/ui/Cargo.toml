@@ -20,9 +20,13 @@ egui = { workspace = true }
 egui_extras = { workspace = true }
 image = { workspace = true }
 tray-icon = { workspace = true }
-gtk = { workspace = true }
-glib = { workspace = true }
-x11rb = { workspace = true }
 crossbeam-channel = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+dirs = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { workspace = true }
+glib = { workspace = true }
+x11rb = { workspace = true }
+eframe = { workspace = true, features = ["x11"] }

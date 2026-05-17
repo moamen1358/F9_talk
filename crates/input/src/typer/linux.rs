@@ -1,23 +1,4 @@
-//! Text injection with three fallbacks (in priority order):
-//!
-//! 1. **`xdotool type --clearmodifiers --delay 0 -- <text>`** — the
-//!    primary path. xdotool types at the X11 *keysym* level (not
-//!    scancode), which means it respects the active keyboard layout
-//!    and "h" really comes out as "h" whether the user is on `us` or
-//!    `ara`. This is exactly how the Python `f9_talk/input/typer.py`
-//!    worked, and we keep it because v0.4's evdev-uinput layer can't
-//!    produce keysym-level events.
-//! 2. **Clipboard + Ctrl+V** — clean fallback when xdotool isn't
-//!    installed. Sets the system clipboard via `arboard`, then sends
-//!    Ctrl+V via uinput. Layout-stable on most systems but Ctrl+V is
-//!    technically scancode-based, so unusual layouts can break it.
-//! 3. **Direct uinput scancode synthesis** — last resort. Only
-//!    correct under en-US layout.
-//!
-//! `/dev/uinput` is mode 0600 root:root by default. Ship the
-//! `packaging/debian/udev/99-f9-talk.rules` file
-//! (KERNEL=="uinput", MODE="0660", GROUP="input") to grant the input
-//! group write access for the uinput fallback paths.
+//! Linux text injection: xdotool → clipboard+Ctrl+V → uinput scancodes.
 
 use std::path::Path;
 use std::thread::sleep;
@@ -27,32 +8,12 @@ use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
 use tracing::{debug, info, warn};
 
+use super::{PreflightError, PRE_TYPE_SLEEP};
+
 const UINPUT_DEV: &str = "/dev/uinput";
 
-/// Pre-type sleep matching Python's `Typer.type_text()` — lets the
-/// hotkey fully release before any key event lands.
-pub const PRE_TYPE_SLEEP: Duration = Duration::from_millis(80);
-
-/// Inter-keystroke pause. Some text-entry widgets (especially web inputs
-/// with input-validation listeners) drop characters when a long string
-/// arrives faster than ~5 ms/char. Matches xdotool's typical effective
-/// rate at `--delay 0`.
 const KEY_DELAY: Duration = Duration::from_micros(2_500);
 
-#[derive(thiserror::Error, Debug)]
-pub enum PreflightError {
-    #[error("/dev/uinput not present — install kernel module 'uinput' and reboot")]
-    MissingDevice,
-    #[error(
-        "/dev/uinput is not writable by the current user — \
-        run `sudo usermod -aG input $USER`, install the udev rule \
-        in packaging/debian/udev/99-f9-talk.rules, then log out and back in once"
-    )]
-    NotWritable,
-}
-
-/// Soft preflight: returns Ok with a warn-log instead of failing, since
-/// the hard error surfaces inside `Typer::new` with a clearer message.
 pub fn preflight() -> Result<(), PreflightError> {
     let dev = Path::new(UINPUT_DEV);
     if !dev.exists() {
@@ -133,8 +94,6 @@ impl Typer {
         }
         sleep(PRE_TYPE_SLEEP);
 
-        // 1. xdotool — keysym-level, layout-independent. Same path
-        //    Python's f9_talk/input/typer.py uses.
         if self.has_xdotool {
             match std::process::Command::new("xdotool")
                 .args(["type", "--clearmodifiers", "--delay", "0", "--", text])
@@ -149,7 +108,6 @@ impl Typer {
             }
         }
 
-        // 2. clipboard + Ctrl+V via uinput.
         if let Some(cb) = self.clipboard.as_mut() {
             match cb.set_text(text) {
                 Ok(()) => {
@@ -163,7 +121,6 @@ impl Typer {
             }
         }
 
-        // 3. raw scancode synthesis (en-US only).
         for c in text.chars() {
             if c == '\r' {
                 continue;
@@ -179,8 +136,6 @@ impl Typer {
     }
 
     fn send_ctrl_v(&mut self) -> anyhow::Result<()> {
-        // Ctrl+V scancodes are layout-invariant; X11 / Wayland handle
-        // pasting whatever string is on the clipboard.
         self.device.emit(&[
             key_event(KeyCode::KEY_LEFTCTRL, 1),
             key_event(KeyCode::KEY_V, 1),
@@ -243,8 +198,6 @@ fn which(cmd: &str) -> bool {
     false
 }
 
-/// Map an ASCII printable char to (KeyCode, needs_shift). For everything
-/// else, returns `None` — caller should fall back to the Unicode path.
 fn ascii_char_to_key(c: char) -> Option<(KeyCode, bool)> {
     match c {
         'a'..='z' => Some((
@@ -299,71 +252,23 @@ fn ascii_char_to_key(c: char) -> Option<(KeyCode, bool)> {
     }
 }
 
-/// All keycodes our typer might emit, registered with the virtual device
-/// at construction. Includes A-Z, 0-9, every punctuation char in
-/// [`ascii_char_to_key`], the modifiers we use, and the navigation keys
-/// `Ctrl+Shift+U` needs.
 const EVERY_KEY_WE_USE: &[KeyCode] = &[
-    // Letters A-Z (KEY_A through KEY_Z; KEY_A is 30, contiguous)
-    KeyCode::KEY_A,
-    KeyCode::KEY_B,
-    KeyCode::KEY_C,
-    KeyCode::KEY_D,
-    KeyCode::KEY_E,
-    KeyCode::KEY_F,
-    KeyCode::KEY_G,
-    KeyCode::KEY_H,
-    KeyCode::KEY_I,
-    KeyCode::KEY_J,
-    KeyCode::KEY_K,
-    KeyCode::KEY_L,
-    KeyCode::KEY_M,
-    KeyCode::KEY_N,
-    KeyCode::KEY_O,
-    KeyCode::KEY_P,
-    KeyCode::KEY_Q,
-    KeyCode::KEY_R,
-    KeyCode::KEY_S,
-    KeyCode::KEY_T,
-    KeyCode::KEY_U,
-    KeyCode::KEY_V,
-    KeyCode::KEY_W,
-    KeyCode::KEY_X,
-    KeyCode::KEY_Y,
-    KeyCode::KEY_Z,
-    // Digits
-    KeyCode::KEY_0,
-    KeyCode::KEY_1,
-    KeyCode::KEY_2,
-    KeyCode::KEY_3,
-    KeyCode::KEY_4,
-    KeyCode::KEY_5,
-    KeyCode::KEY_6,
-    KeyCode::KEY_7,
-    KeyCode::KEY_8,
-    KeyCode::KEY_9,
-    // Whitespace + structural
-    KeyCode::KEY_SPACE,
-    KeyCode::KEY_ENTER,
-    KeyCode::KEY_TAB,
-    KeyCode::KEY_BACKSPACE,
-    // Punctuation
-    KeyCode::KEY_DOT,
-    KeyCode::KEY_COMMA,
-    KeyCode::KEY_SEMICOLON,
-    KeyCode::KEY_APOSTROPHE,
-    KeyCode::KEY_SLASH,
-    KeyCode::KEY_BACKSLASH,
-    KeyCode::KEY_MINUS,
-    KeyCode::KEY_EQUAL,
-    KeyCode::KEY_LEFTBRACE,
-    KeyCode::KEY_RIGHTBRACE,
-    KeyCode::KEY_GRAVE,
-    // Modifiers
-    KeyCode::KEY_LEFTSHIFT,
-    KeyCode::KEY_RIGHTSHIFT,
-    KeyCode::KEY_LEFTCTRL,
-    KeyCode::KEY_RIGHTCTRL,
-    KeyCode::KEY_LEFTALT,
-    KeyCode::KEY_RIGHTALT,
+    KeyCode::KEY_A, KeyCode::KEY_B, KeyCode::KEY_C, KeyCode::KEY_D,
+    KeyCode::KEY_E, KeyCode::KEY_F, KeyCode::KEY_G, KeyCode::KEY_H,
+    KeyCode::KEY_I, KeyCode::KEY_J, KeyCode::KEY_K, KeyCode::KEY_L,
+    KeyCode::KEY_M, KeyCode::KEY_N, KeyCode::KEY_O, KeyCode::KEY_P,
+    KeyCode::KEY_Q, KeyCode::KEY_R, KeyCode::KEY_S, KeyCode::KEY_T,
+    KeyCode::KEY_U, KeyCode::KEY_V, KeyCode::KEY_W, KeyCode::KEY_X,
+    KeyCode::KEY_Y, KeyCode::KEY_Z,
+    KeyCode::KEY_0, KeyCode::KEY_1, KeyCode::KEY_2, KeyCode::KEY_3,
+    KeyCode::KEY_4, KeyCode::KEY_5, KeyCode::KEY_6, KeyCode::KEY_7,
+    KeyCode::KEY_8, KeyCode::KEY_9,
+    KeyCode::KEY_SPACE, KeyCode::KEY_ENTER, KeyCode::KEY_TAB, KeyCode::KEY_BACKSPACE,
+    KeyCode::KEY_DOT, KeyCode::KEY_COMMA, KeyCode::KEY_SEMICOLON,
+    KeyCode::KEY_APOSTROPHE, KeyCode::KEY_SLASH, KeyCode::KEY_BACKSLASH,
+    KeyCode::KEY_MINUS, KeyCode::KEY_EQUAL, KeyCode::KEY_LEFTBRACE,
+    KeyCode::KEY_RIGHTBRACE, KeyCode::KEY_GRAVE,
+    KeyCode::KEY_LEFTSHIFT, KeyCode::KEY_RIGHTSHIFT,
+    KeyCode::KEY_LEFTCTRL, KeyCode::KEY_RIGHTCTRL,
+    KeyCode::KEY_LEFTALT, KeyCode::KEY_RIGHTALT,
 ];

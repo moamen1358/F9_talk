@@ -1,10 +1,9 @@
 //! API Keys dialog. Opens as a separate egui viewport when the user
-//! picks "API Keys…" from the tray. Saves to
-//! `~/.config/F9_talk/secrets.env` preserving comments + other entries.
+//! picks "API Keys…" from the tray. Saves to a platform-appropriate
+//! config path (e.g. `~/.config/F9_talk/secrets.env` on Linux).
 //!
 //! Single row (Deepgram Nova-3) with a Show/Hide toggle + Save/Cancel.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -158,8 +157,8 @@ pub fn maybe_show_dialog(ctx: &egui::Context, state: &KeysDialogState) {
 
 /// Path resolver matching the loader in app/main.rs.
 pub fn secrets_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config/F9_talk/secrets.env"))
+    let config = dirs::config_dir()?;
+    Some(config.join("F9_talk").join("secrets.env"))
 }
 
 /// Persist the changed key to `secrets.env`, preserving comments,
@@ -171,7 +170,11 @@ pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
     };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
-        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
     }
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
 
@@ -197,7 +200,11 @@ pub fn save_to_disk(saved: &KeysSaved) -> std::io::Result<()> {
 
     let tmp = path.with_extension("env.tmp");
     std::fs::write(&tmp, &out)?;
-    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
     std::fs::rename(&tmp, &path)?;
     info!(
         "secrets.env updated (dg_changed={})",

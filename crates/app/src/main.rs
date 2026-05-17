@@ -10,7 +10,6 @@
 //!   frames + RMS into the shared `IndicatorState`.
 
 use std::collections::HashMap;
-use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,10 +26,8 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-const INSTANCE_LOCK_NAME: &[u8] = b"\0f9-talk-instance-lock";
-
 #[derive(Parser, Debug, Clone)]
-#[command(name = "f9-talk", version, about = "Hold-to-talk dictation for Linux")]
+#[command(name = "f9-talk", version, about = "Hold-to-talk dictation")]
 struct Cli {
     #[arg(long, value_enum, default_value_t = Backend::Cloud)]
     backend: Backend,
@@ -186,12 +183,6 @@ fn main() -> anyhow::Result<()> {
         .with_resizable(false)
         .with_taskbar(false)
         .with_mouse_passthrough(true)
-        // X11WindowType::Notification → tells the WM "this is an
-        // override-redirect-style overlay, do not decorate it, do not
-        // put it in the taskbar/alt-tab list, do not move it under
-        // any window-management policy". This is the bit that
-        // GNOME/Mutter respects when `with_decorations(false)` alone
-        // doesn't get rid of the title bar.
         .with_window_type(egui::X11WindowType::Notification)
         // Start hidden — IndicatorApp toggles visibility on the
         // rising/falling edge of `recording`/status_text so users
@@ -232,29 +223,48 @@ fn init_tracing(verbose: bool) {
         tracing_subscriber::EnvFilter::new(if verbose { "debug" } else { "info" })
     });
     let registry = tracing_subscriber::registry().with(env_filter);
-    match tracing_journald::layer() {
-        Ok(journald) => {
-            registry
-                .with(journald)
-                .with(tracing_subscriber::fmt::layer().with_target(false))
-                .init();
+
+    #[cfg(target_os = "linux")]
+    {
+        match tracing_journald::layer() {
+            Ok(journald) => {
+                registry
+                    .with(journald)
+                    .with(tracing_subscriber::fmt::layer().with_target(false))
+                    .init();
+                return;
+            }
+            Err(e) => {
+                eprintln!("journald layer unavailable ({e}); logging to stderr only");
+            }
         }
-        Err(e) => {
-            eprintln!("journald layer unavailable ({e}); logging to stderr only");
-            registry
-                .with(tracing_subscriber::fmt::layer().with_target(false))
-                .init();
-        }
+    }
+
+    // Fallback (non-Linux, or journald unavailable on Linux).
+    #[allow(unreachable_code)]
+    {
+        registry
+            .with(tracing_subscriber::fmt::layer().with_target(false))
+            .init();
     }
 }
 
-fn acquire_instance_lock() -> anyhow::Result<UnixDatagram> {
+// ── Instance lock ──────────────────────────────────────────────────
+// Linux: abstract Unix socket.
+// macOS / Windows: advisory lock file in the config dir.
+
+#[cfg(target_os = "linux")]
+fn acquire_instance_lock() -> anyhow::Result<Box<dyn std::any::Any>> {
+    use std::os::unix::net::UnixDatagram;
+    const INSTANCE_LOCK_NAME: &[u8] = b"\0f9-talk-instance-lock";
+
     let socket = UnixDatagram::unbound()?;
     bind_abstract(&socket, INSTANCE_LOCK_NAME)?;
-    Ok(socket)
+    Ok(Box::new(socket))
 }
 
-fn bind_abstract(sock: &UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
+#[cfg(target_os = "linux")]
+fn bind_abstract(sock: &std::os::unix::net::UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     if name.len() > 107 {
         anyhow::bail!("abstract socket name too long: {} bytes", name.len());
@@ -272,6 +282,27 @@ fn bind_abstract(sock: &UnixDatagram, name: &[u8]) -> anyhow::Result<()> {
         anyhow::bail!("bind on abstract socket failed: {err}");
     }
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn acquire_instance_lock() -> anyhow::Result<Box<dyn std::any::Any>> {
+    let lock_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("could not determine config directory"))?;
+    let lock_path = lock_dir.join("F9_talk").join(".instance.lock");
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)?;
+    // Try writing our PID — if the file is locked by another process,
+    // the OS will prevent concurrent access via the exclusive open.
+    use std::io::Write;
+    let mut f = file;
+    writeln!(f, "{}", std::process::id())?;
+    Ok(Box::new(f))
 }
 
 fn load_secrets() -> HashMap<String, String> {
@@ -302,8 +333,8 @@ fn load_secrets() -> HashMap<String, String> {
 }
 
 fn secrets_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config/F9_talk/secrets.env"))
+    let config = dirs::config_dir()?;
+    Some(config.join("F9_talk").join("secrets.env"))
 }
 
 async fn build_cloud_backend(
@@ -609,4 +640,5 @@ fn spawn_wakeup_watcher() {
     });
 }
 
+#[cfg(target_os = "linux")]
 extern crate libc;

@@ -23,6 +23,11 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 hotkey-listener = { workspace = true }
-evdev = { workspace = true }
 anyhow = { workspace = true }
 arboard = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse"] }
