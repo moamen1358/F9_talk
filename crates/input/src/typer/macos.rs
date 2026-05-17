@@ -44,7 +44,10 @@ impl Typer {
 
         cb.set_text(text)
             .map_err(|e| anyhow::anyhow!("clipboard set_text failed: {e}"))?;
-        debug!("clipboard set ({} chars); sending Cmd+V via osascript", text.len());
+        debug!(
+            "clipboard set ({} chars); sending Cmd+V via osascript",
+            text.len()
+        );
 
         sleep(std::time::Duration::from_millis(50));
 
