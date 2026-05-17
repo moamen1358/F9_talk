@@ -46,4 +46,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" f9-talk-*-x86_64.AppImage --clobber
+          TAG="${{ github.ref_name }}"
+          # Wait for the release to be created by cargo-dist's release.yml
+          for i in $(seq 1 30); do
+            if gh release view "$TAG" &>/dev/null; then
+              echo "Release $TAG found, uploading AppImage..."
+              gh release upload "$TAG" f9-talk-*-x86_64.AppImage --clobber
+              exit 0
+            fi
+            echo "Waiting for release $TAG to be created... (attempt $i/30)"
+            sleep 30
+          done
+          echo "::error::Release $TAG was not created within 15 minutes"
+          exit 1
