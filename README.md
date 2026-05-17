@@ -24,6 +24,18 @@ support is on the roadmap.
 
 ## Installation
 
+Three install paths are supported. The `.deb` is the most automated;
+the AppImage and cargo installer reach the same end state after one
+extra `f9-talk install` call.
+
+| Method | Sets up automatically | One-time follow-up |
+|---|---|---|
+| `.deb` package | binary, apps menu, autostart, udev rule, `input` group, secrets stub | log out + back in once |
+| AppImage | nothing on the system | `./f9-talk-*.AppImage install --user` then `sudo ./f9-talk-*.AppImage install --system` |
+| `curl \| sh` (cargo-dist) | binary in `~/.cargo/bin/` | `f9-talk install --user` then `sudo f9-talk install --system` |
+
+### `.deb` (recommended)
+
 [Download the latest release](https://github.com/moamen1358/f9-talk/releases/latest) and install:
 
 ```bash
@@ -32,14 +44,41 @@ sudo apt-get install -f
 ```
 
 The package installs the binary at `/usr/bin/f9-talk`, adds the user to
-the `input` group, installs the udev rule for `/dev/uinput`, and
-registers an autostart entry. After installation, log out and log back
-in once so the group membership and udev rule take effect in the GUI
-session.
+the `input` group, installs the udev rule for `/dev/uinput`, registers
+an autostart entry, and seeds `~/.config/F9_talk/secrets.env` with a
+placeholder. Log out and log back in once so the group membership and
+udev rule take effect in the GUI session.
 
-After the first launch, right-click the tray icon, select **API
-Keys…**, and paste a Deepgram API key. The configuration hot-reloads
-on save.
+### AppImage
+
+```bash
+chmod +x f9-talk-*.AppImage
+./f9-talk-*.AppImage install --user         # apps menu + autostart + secrets stub
+sudo ./f9-talk-*.AppImage install --system  # udev rule + adds you to `input`
+```
+
+The first command writes `~/.local/share/applications/f9-talk.desktop`,
+`~/.config/autostart/f9-talk.desktop`, and seeds
+`~/.config/F9_talk/secrets.env` (only if missing). The second installs
+`/etc/udev/rules.d/99-f9-talk.rules` and adds you to the `input` group.
+Log out + back in once. Use `f9-talk uninstall --user` /
+`--system` to reverse either side; secrets are always preserved.
+
+### cargo-dist (`curl | sh`)
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/moamen1358/f9-talk/releases/latest/download/f9-talk-installer.sh | sh
+f9-talk install --user
+sudo f9-talk install --system
+```
+
+### Configuring the API key
+
+After installing, paste a Deepgram API key into
+`~/.config/F9_talk/secrets.env` (or, on session-tray-supporting
+desktops, right-click the tray icon → **API Keys…**). The
+configuration hot-reloads on save.
 
 ## Usage
 
@@ -67,6 +106,9 @@ cleared on the next successful one).
 | `f9-talk --local-hotkey '<ctrl>+<alt>+space'` | Custom hotkey chord |
 | `f9-talk --headless` | Disables the indicator window; the tray icon stays active |
 | `f9-talk -v` | Verbose logging |
+| `f9-talk install --user` | Writes apps-menu entry, autostart entry, and `secrets.env` stub under `~/.config` / `~/.local/share` |
+| `f9-talk install --system` | Installs udev rule + adds user to `input` group (needs `sudo`) |
+| `f9-talk uninstall [--user\|--system]` | Reverses the matching `install` step. Secrets are always preserved. |
 
 To make a flag permanent, edit the autostart entry at
 `/etc/xdg/autostart/f9-talk.desktop` and update the `Exec=` line.
@@ -176,7 +218,8 @@ Reliability mechanisms:
 | Symptom | Resolution |
 |---|---|
 | `/dev/uinput is not writable` | The `.deb` adds the user to the `input` group, but the GUI session must restart for it to take effect. Log out and back in once. |
-| Tray icon invisible on vanilla GNOME | `sudo apt install gnome-shell-extension-appindicator`. Pop!_OS, Ubuntu, KDE, and COSMIC have native support. |
+| Tray icon invisible on vanilla GNOME | `sudo apt install gnome-shell-extension-appindicator`. Pop!_OS (on GNOME), Ubuntu, and KDE ship native support. |
+| Tray icon invisible on Pop!_OS COSMIC | COSMIC does not yet ship a StatusNotifierItem applet, so the tray menu has nowhere to render. Configure the Deepgram key directly in `~/.config/F9_talk/secrets.env`; everything else works without the tray. Track [pop-os/cosmic-applets#status-area](https://github.com/pop-os/cosmic-applets) for native support. |
 | `no speech detected` | Hold F9 for at least 0.3 s before releasing. |
 | Wrong characters under non-en-US layout | Verify `xdotool` is installed; the typer logs `primary=xdotool` at startup. |
 | "Already running" with no visible window | `pkill -f /usr/bin/f9-talk` and relaunch. |
