@@ -16,8 +16,8 @@ if [ ! -f "$BINARY" ]; then
     BINARY="$REPO_ROOT/target/release/f9-talk"
 fi
 
-# Read version from the app crate (authoritative source)
-VERSION=$(grep '^version' "$REPO_ROOT/crates/app/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+# Read version from workspace root Cargo.toml (app crate inherits via version.workspace = true)
+VERSION=$(grep '^version = ' "$REPO_ROOT/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 export VERSION
 
 # Download linuxdeploy if not present (bundles shared libs into AppImage)
